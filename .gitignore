@@ -1,0 +1,19 @@
+# Dependencies
+functions/node_modules/
+
+# Local env / secrets (no subir API keys)
+functions/.env
+.env
+.env.*
+!.env.example
+
+# Firebase
+.firebase/
+*-debug.log
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
