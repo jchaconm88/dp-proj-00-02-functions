@@ -192,8 +192,10 @@ y luego volver a desplegar.
 2. Desde la raíz del proyecto:
 
    ```bash
-   firebase deploy --only functions
+   firebase deploy --only functions --force
    ```
+
+   (`--force` permite que Firebase configure la política de limpieza de artefactos en la región si es la primera vez.)
 
 3. La consola mostrará la URL de la función, por ejemplo:
 
