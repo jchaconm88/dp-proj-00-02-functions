@@ -211,23 +211,24 @@ y luego volver a desplegar.
 
 El pipeline en `.github/workflows/deploy-firebase-functions.yml` despliega las functions automáticamente al hacer **push a la rama `main`**. También puedes ejecutarlo manualmente en **Actions** → **Deploy Firebase Functions** → **Run workflow**.
 
+La autenticación usa una **cuenta de servicio** y `GOOGLE_APPLICATION_CREDENTIALS` (recomendado por Firebase; el uso de `--token` está deprecado).
+
 ### Configuración (una sola vez)
 
-1. **Genera un token de CI** en tu máquina (con Firebase CLI instalado y ya logueado):
+1. **Crear una cuenta de servicio en Google Cloud**:
+   - [Google Cloud Console](https://console.cloud.google.com/) → selecciona el proyecto **layout-admin** (o el que uses con Firebase).
+   - **IAM y administración** → **Cuentas de servicio** → **Crear cuenta de servicio**.
+   - Nombre, por ejemplo: `github-actions-deploy`.
+   - **Crear y continuar** → en “Conceder acceso al proyecto”, añade el rol **Editor** (o al menos **Cloud Functions Admin** + **Service Account User**).
+   - **Listo** → en la lista, abre la cuenta → pestaña **Claves** → **Añadir clave** → **Crear clave nueva** → **JSON** → descarga el archivo.
 
-   ```bash
-   firebase login:ci
-   ```
-
-   Copia el token que se muestra.
-
-2. **Añade el token como secret en GitHub**:
+2. **Añadir el JSON como secret en GitHub**:
    - Repositorio → **Settings** → **Secrets and variables** → **Actions**
    - **New repository secret**
-   - Nombre: `FIREBASE_TOKEN`
-   - Valor: el token generado en el paso anterior
+   - Nombre: `FIREBASE_SERVICE_ACCOUNT`
+   - Valor: **todo el contenido** del archivo JSON descargado (copiar/pegar completo).
 
-3. Sube los cambios a `main` o ejecuta el workflow manualmente. El job instalará dependencias en `functions/` y ejecutará `firebase deploy --only functions`.
+3. Sube los cambios a `main` o ejecuta el workflow manualmente. El job instalará dependencias en `functions/` y ejecutará `firebase deploy --only functions` usando la cuenta de servicio.
 
 ---
 
