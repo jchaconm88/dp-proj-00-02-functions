@@ -18,6 +18,9 @@ Proyecto de **Firebase Cloud Functions** que expone una API de autenticación us
 ```
 dp-proj-00-02-functions/
 ├── .firebaserc          # Proyecto por defecto: layout-admin
+├── .github/
+│   └── workflows/
+│       └── deploy-firebase-functions.yml   # CI: deploy en push a main
 ├── firebase.json        # Configuración: source de functions
 ├── .gitignore
 ├── README.md
@@ -199,6 +202,30 @@ y luego volver a desplegar.
    ```
 
    El endpoint de login es: **`<esa-url>/login`**.
+
+---
+
+## Despliegue con GitHub Actions
+
+El pipeline en `.github/workflows/deploy-firebase-functions.yml` despliega las functions automáticamente al hacer **push a la rama `main`**. También puedes ejecutarlo manualmente en **Actions** → **Deploy Firebase Functions** → **Run workflow**.
+
+### Configuración (una sola vez)
+
+1. **Genera un token de CI** en tu máquina (con Firebase CLI instalado y ya logueado):
+
+   ```bash
+   firebase login:ci
+   ```
+
+   Copia el token que se muestra.
+
+2. **Añade el token como secret en GitHub**:
+   - Repositorio → **Settings** → **Secrets and variables** → **Actions**
+   - **New repository secret**
+   - Nombre: `FIREBASE_TOKEN`
+   - Valor: el token generado en el paso anterior
+
+3. Sube los cambios a `main` o ejecuta el workflow manualmente. El job instalará dependencias en `functions/` y ejecutará `firebase deploy --only functions`.
 
 ---
 
