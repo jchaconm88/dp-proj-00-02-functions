@@ -60,7 +60,7 @@ dp-proj-00-02-functions/
 
    Cuando lo pida, pega la **Web API Key** de tu proyecto Firebase (Configuración del proyecto → General → Claves de API). El valor se guarda en **Secret Manager** y no se expone en código ni en logs.
 
-5. **Dar acceso al secreto a la cuenta que ejecuta la function**: la cuenta de **runtime** de Cloud Functions (p. ej. `layout-admin@appspot.gserviceaccount.com`) debe poder leer el secreto. En [Secret Manager](https://console.cloud.google.com/security/secret-manager?project=layout-admin) → abre el secreto **APP_FIREBASE_API_KEY** → **Permisos** → **Conceder acceso** → principal `layout-admin@appspot.gserviceaccount.com` (o la cuenta de runtime de tu function) → rol **Secret Manager Secret Accessor** → Guardar. Sin esto verás *"Permission 'secretmanager.secrets.get' denied"* al llamar a la API.
+5. **Dar acceso al secreto a la cuenta que ejecuta la function**: la cuenta de **runtime** de Cloud Functions (p. ej. `layout-admin@appspot.gserviceaccount.com`) debe poder leer el secreto. En [Secret Manager](https://console.cloud.google.com/security/secret-manager?project=layout-admin) → abre el secreto **APP_FIREBASE_API_KEY** → **Permisos** → **Conceder acceso** → principal `layout-admin@appspot.gserviceaccount.com` (o la cuenta de runtime de tu function) → rol **Usuario con acceso a secretos de Secret Manager** / **Secret Manager Secret Accessor** (solo necesita leer el valor) → Guardar. Sin esto verás *"Permission 'secretmanager.secrets.get' denied"* al llamar a la API.
 
 ---
 
@@ -232,7 +232,9 @@ La autenticación usa una **cuenta de servicio** y `GOOGLE_APPLICATION_CREDENTIA
    - Nombre: `FIREBASE_SERVICE_ACCOUNT`
    - Valor: **todo el contenido** del archivo JSON descargado (copiar/pegar completo).
 
-3. Sube los cambios a `main` o ejecuta el workflow manualmente. El job instalará dependencias en `functions/` y ejecutará `firebase deploy --only functions` usando la cuenta de servicio.
+3. **Dar a la cuenta de servicio de CI y a Cloud Build acceso al secreto** (si no, el deploy falla con *"Permission 'secretmanager.secrets.get' denied"*): [Secret Manager](https://console.cloud.google.com/security/secret-manager?project=layout-admin) → abre el secreto **APP_FIREBASE_API_KEY** → pestaña **Permisos** → **Conceder acceso** → para la cuenta de CI y para la cuenta de Cloud Build (ej. `NUMERO_PROYECTO@cloudbuild.gserviceaccount.com`) → rol **Administrador de Secret Manager** / **Secret Manager Admin** → Guardar.
+
+4. Sube los cambios a `main` o ejecuta el workflow manualmente. El job instalará dependencias en `functions/` y ejecutará `firebase deploy --only functions` usando la cuenta de servicio.
 
 ---
 
@@ -274,9 +276,12 @@ La URL base será algo como `http://127.0.0.1:5001/layout-admin/us-central1/auth
 
 | Problema | Posible causa | Qué hacer |
 |----------|----------------|-----------|
+| "Failed to list functions for layout-admin" en el pipeline | La cuenta de CI no puede listar/gestionar Cloud Functions | [IAM](https://console.cloud.google.com/iam-admin/iam?project=layout-admin) → editar la cuenta de servicio de CI → añadir rol **Administrador de Cloud Functions** / **Cloud Functions Admin** |
 | "Missing permissions... iam.serviceAccounts.ActAs on... @appspot.gserviceaccount.com" en el pipeline | Falta el rol **Service Account User** | [IAM](https://console.cloud.google.com/iam-admin/iam?project=layout-admin) → editar la cuenta de servicio de CI → añadir **Usuario de cuenta de servicio** / **Service Account User** |
 | "Caller does not have required permission... roles/serviceusage.serviceUsageConsumer" o "403" en serviceusage.googleapis.com | Falta el rol **Service Usage Consumer** | [IAM](https://console.cloud.google.com/iam-admin/iam?project=layout-admin) → editar la cuenta de servicio de CI → añadir **Consumidor de Service Usage** / **Service Usage Consumer**. Los cambios pueden tardar unos minutos. |
-| "Permission 'secretmanager.secrets.get' denied" o 403 en secretmanager.googleapis.com al llamar a la API | La cuenta de **runtime** de la function no puede leer el secreto | [Secret Manager](https://console.cloud.google.com/security/secret-manager?project=layout-admin) → secreto **APP_FIREBASE_API_KEY** → **Permisos** → añadir principal `layout-admin@appspot.gserviceaccount.com` con rol **Secret Manager Secret Accessor** |
+| "Permission 'secretmanager.secrets.get' denied" **durante el deploy** en GitHub | La cuenta que ejecuta el deploy (CI o **Cloud Build**) no puede acceder al secreto | [Secret Manager](https://console.cloud.google.com/security/secret-manager?project=layout-admin) → secreto **APP_FIREBASE_API_KEY** → **Permisos** → añadir con rol **Administrador de Secret Manager** / **Secret Manager Admin**: (1) la cuenta de servicio de CI (la del JSON en GitHub) y (2) la cuenta de **Cloud Build** (ej. `NUMERO_PROYECTO@cloudbuild.gserviceaccount.com`; ver [Cloud Build → Configuración](https://console.cloud.google.com/cloud-build/settings/service-account?project=layout-admin)) |
+| "Permission 'secretmanager.secrets.get' denied" **al llamar a la API** (en runtime) | La cuenta de **runtime** de la function no puede leer el secreto | [Secret Manager](https://console.cloud.google.com/security/secret-manager?project=layout-admin) → secreto **APP_FIREBASE_API_KEY** → **Permisos** → añadir principal `layout-admin@appspot.gserviceaccount.com` con rol **Usuario con acceso a secretos de Secret Manager** / **Secret Manager Secret Accessor** (para runtime basta con poder leer el valor) |
+| "Cloud Billing API has not been used... or it is disabled" / 403 en cloudbilling.googleapis.com | La API de facturación no está habilitada o el proyecto no tiene facturación | (1) [Habilitar Cloud Billing API](https://console.cloud.google.com/apis/api/cloudbilling.googleapis.com/overview?project=layout-admin) para el proyecto. (2) [Facturación de Google Cloud](https://console.cloud.google.com/billing?project=layout-admin): vincula una cuenta de facturación al proyecto **layout-admin** (Cloud Functions 2.ª gen suele requerirla). Esperar unos minutos y reintentar. |
 | "Missing or insufficient permissions" al desplegar | Secret no definido | `firebase functions:secrets:set APP_FIREBASE_API_KEY` |
 | 401 / INVALID_LOGIN_CREDENTIALS | Email o contraseña incorrectos, o usuario no existe | Revisar credenciales y que el usuario esté creado en Authentication |
 | 500 en login | Timeout o error de red con Identity Toolkit | Revisar `firebase functions:log` y que la API Key sea la correcta |
