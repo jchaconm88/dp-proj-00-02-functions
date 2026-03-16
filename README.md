@@ -219,8 +219,10 @@ La autenticación usa una **cuenta de servicio** y `GOOGLE_APPLICATION_CREDENTIA
    - [Google Cloud Console](https://console.cloud.google.com/) → selecciona el proyecto **layout-admin** (o el que uses con Firebase).
    - **IAM y administración** → **Cuentas de servicio** → **Crear cuenta de servicio**.
    - Nombre, por ejemplo: `github-actions-deploy`.
-   - **Crear y continuar** → en “Conceder acceso al proyecto”, añade el rol **Editor** (o al menos **Cloud Functions Admin** + **Service Account User**).
+   - **Crear y continuar** → en “Conceder acceso al proyecto”, añade estos tres roles (todos necesarios para el deploy): **Cloud Functions Admin** (o **Editor**), **Usuario de cuenta de servicio** / **Service Account User**, y **Consumidor de Service Usage** / **Service Usage Consumer**.
    - **Listo** → en la lista, abre la cuenta → pestaña **Claves** → **Añadir clave** → **Crear clave nueva** → **JSON** → descarga el archivo.
+
+   **Importante:** Sin **Service Account User** fallará con *"iam.serviceAccounts.ActAs..."*; sin **Service Usage Consumer** fallará con *"Caller does not have required permission... roles/serviceusage.serviceUsageConsumer"*. En local no suele fallar porque tu usuario ya tiene esos permisos.
 
 2. **Añadir el JSON como secret en GitHub**:
    - Repositorio → **Settings** → **Secrets and variables** → **Actions**
@@ -270,6 +272,8 @@ La URL base será algo como `http://127.0.0.1:5001/layout-admin/us-central1/auth
 
 | Problema | Posible causa | Qué hacer |
 |----------|----------------|-----------|
+| "Missing permissions... iam.serviceAccounts.ActAs on... @appspot.gserviceaccount.com" en el pipeline | Falta el rol **Service Account User** | [IAM](https://console.cloud.google.com/iam-admin/iam?project=layout-admin) → editar la cuenta de servicio de CI → añadir **Usuario de cuenta de servicio** / **Service Account User** |
+| "Caller does not have required permission... roles/serviceusage.serviceUsageConsumer" o "403" en serviceusage.googleapis.com | Falta el rol **Service Usage Consumer** | [IAM](https://console.cloud.google.com/iam-admin/iam?project=layout-admin) → editar la cuenta de servicio de CI → añadir **Consumidor de Service Usage** / **Service Usage Consumer**. Los cambios pueden tardar unos minutos. |
 | "Missing or insufficient permissions" al desplegar | Secret no definido | `firebase functions:secrets:set APP_FIREBASE_API_KEY` |
 | 401 / INVALID_LOGIN_CREDENTIALS | Email o contraseña incorrectos, o usuario no existe | Revisar credenciales y que el usuario esté creado en Authentication |
 | 500 en login | Timeout o error de red con Identity Toolkit | Revisar `firebase functions:log` y que la API Key sea la correcta |
