@@ -26,8 +26,16 @@ dp-proj-00-02-functions/
 ├── README.md
 └── functions/
     ├── package.json
-    └── index.js         # Express app + export authFunction
+    ├── index.js         # Re-export de todas las functions
+    └── src/
+        ├── lib/         # Ver convención abajo
+        └── features/    # Una carpeta por dominio (auth, transport, system, …)
 ```
+
+### Convención en `functions/src/lib`
+
+- **`firebase.js`**: inicialización única de Firebase Admin y export de `db` / `admin`.
+- **`*.service.js`**: lógica de dominio reutilizable (secuencias, costos de viaje, etc.), alineada en nombre con la web (`*.service.ts`).
 
 - **authFunction**: función HTTP que monta la app Express.
 - **Rutas**: `GET /` (health), `POST /login` (autenticación).

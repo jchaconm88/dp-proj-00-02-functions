@@ -1,0 +1,60 @@
+---
+description: Estructura, nombres y alineación con la web en dp-proj-00-02-functions
+globs:
+  - dp-proj-00-02-functions/functions/**/*.js
+  - functions/**/*.js
+alwaysApply: false
+---
+
+# Cloud Functions — convenciones del proyecto
+
+## Estructura
+
+- **`functions/index.js`**: único punto de export. Re-exporta cada handler; no meter lógica de negocio aquí.
+- **`functions/src/features/<dominio>/`**: un archivo por función desplegable, sufijo **`.function.js`** (ej. `trip-costs.function.js`, `sequences.function.js`).
+- **`functions/src/lib/`**: código reutilizable entre features (sin `onCall` / `onRequest` / triggers aquí).
+
+## `src/lib`
+
+| Archivo | Rol |
+|--------|-----|
+| **`firebase.js`** | Inicialización única de Firebase Admin (`initializeApp` si no hay apps) y export de `admin` y `db`. No crear otros módulos de init. |
+| **`*.service.js`** | Lógica de dominio reutilizable. Nombres alineados con la web (`dp-proj-00-02-web`: `*.service.ts`). |
+
+### Servicios actuales (no renombrar sin actualizar `require`)
+
+- **`sequence-code.service.js`**: secuencias correlativas Firestore (`resolveDraftCodeWithGenerator`, etc.).
+- **`trip-cost.service.js`**: exporta **`computeTripCostFromAssignment`** (costo desde `tripAssignment` employee | resource).
+
+### Qué evitar
+
+- Sufijos **`-admin`** en nombres de archivo en `lib` (todo Functions ya usa Admin SDK).
+- Duplicar `initializeApp` fuera de `firebase.js`.
+- Imports rotos tras renombrar: buscar en el repo `require("../../lib/` y actualizar todas las rutas.
+
+## Callables y nombres desplegados
+
+- El callable de códigos correlativos se exporta como **`generateSequenceCode`** (no `resolveCodeIfEmpty`). La web invoca el mismo nombre vía `httpsCallable`.
+- Al cambiar el **nombre exportado** en `index.js`, es un **nuevo** endpoint en Firebase; coordinar deploy y referencias en la web.
+
+## Patrón `require` en features
+
+```javascript
+const { db } = require("../../lib/firebase");
+const { computeTripCostFromAssignment } = require("../../lib/trip-cost.service");
+const { resolveDraftCodeWithGenerator } = require("../../lib/sequence-code.service");
+```
+
+## Comprobación rápida tras cambios
+
+Desde `functions/`:
+
+```bash
+node -e "require('./index.js'); console.log('ok');"
+```
+
+Si falla con `MODULE_NOT_FOUND`, revisar rutas en `require` y que exista el `.js` en `src/lib/`.
+
+## Alineación monorepo
+
+- Reglas de secuencias y DTOs de callables: **`dp-proj-00-02-web`** (`app/features/system/sequences/`). Mantener paridad de nombres de función y forma del payload (`entity`, `currentCode`, respuesta `{ code }`).
