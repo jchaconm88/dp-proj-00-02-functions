@@ -246,6 +246,25 @@ La autenticación usa una **cuenta de servicio** y `GOOGLE_APPLICATION_CREDENTIA
 
 ---
 
+## Callable: `syncSettlementItems`
+
+**Nombre exportado:** `syncSettlementItems` (Firebase Callable HTTPS, región por defecto del proyecto).
+
+**Entrada:** `{ settlementId: string }` (usuario autenticado).
+
+**Comportamiento:**
+
+1. Lee el documento `settlements/{settlementId}`.
+2. Si `category` es **`customer`**: busca viajes con `clientId == entity.id` y `scheduledStart` con fecha (primeros 10 caracteres `YYYY-MM-DD`) entre `period.start` y `period.end`; para cada viaje obtiene los documentos de `tripCharges` con ese `tripId` y genera ítems (`movement.type = tripCharge`, concepto = `name`, etc.).
+3. Si `category` es **`resource`**: busca `tripAssignments` con `entityType == "resource"` y `entityId == entity.id`, toma los `tripId` asociados y conserva solo los viajes cuya fecha (`scheduledStart`, primeros 10 caracteres) cae en el periodo; para esos viajes trae **todos** los documentos de `tripCosts` con ese `tripId`.
+4. Reemplaza la subcolección `settlements/{id}/items` y actualiza `totals`: `grossAmount` = suma de `amount` de los ítems, `settledAmount` y `pendingAmount` en `0`, `currency` la de la liquidación.
+
+**Índice Firestore recomendado:** consulta compuesta en `tripAssignments` con campos `entityType` (Ascending) y `entityId` (Ascending). Si falta, el error de deploy en consola o el enlace del log de la función indicará crear el índice.
+
+La app web invoca esta función tras crear o guardar una liquidación de categoría Cliente o Recurso (`syncSettlementItemsFromTrips` en `settlements.service.ts`).
+
+---
+
 ## Emulador local
 
 Para probar en local sin desplegar:
