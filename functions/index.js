@@ -5,6 +5,10 @@ const { syncTripAssignmentFromTrip } = require("./src/features/transport/trips-s
 const { generateSequenceCode } = require("./src/features/system/sequences.function");
 const { getTripChargeFreightPricing } = require("./src/features/transport/trip-charge-freight-pricing.function");
 const { syncSettlementItems } = require("./src/features/transport/settlements-sync.function");
+const {
+  syncMovementFromSettlementItem,
+  clearMovementFromDeletedSettlementItem,
+} = require("./src/features/transport/settlement-item-movement-sync.function");
 
 exports.authFunction = authFunction;
 exports.getResourcePerTripCost = getResourcePerTripCost;
@@ -13,3 +17,5 @@ exports.syncTripAssignmentFromTrip = syncTripAssignmentFromTrip;
 exports.generateSequenceCode = generateSequenceCode;
 exports.getTripChargeFreightPricing = getTripChargeFreightPricing;
 exports.syncSettlementItems = syncSettlementItems;
+exports.syncMovementFromSettlementItem = syncMovementFromSettlementItem;
+exports.clearMovementFromDeletedSettlementItem = clearMovementFromDeletedSettlementItem;

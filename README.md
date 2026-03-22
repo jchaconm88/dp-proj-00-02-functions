@@ -255,13 +255,37 @@ La autenticación usa una **cuenta de servicio** y `GOOGLE_APPLICATION_CREDENTIA
 **Comportamiento:**
 
 1. Lee el documento `settlements/{settlementId}`.
-2. Si `category` es **`customer`**: busca viajes con `clientId == entity.id` y `scheduledStart` con fecha (primeros 10 caracteres `YYYY-MM-DD`) entre `period.start` y `period.end`; para cada viaje obtiene los documentos de `tripCharges` con ese `tripId` y genera ítems (`movement.type = tripCharge`, concepto = `name`, etc.).
-3. Si `category` es **`resource`**: busca `tripAssignments` con `entityType == "resource"` y `entityId == entity.id`, toma los `tripId` asociados y conserva solo los viajes cuya fecha (`scheduledStart`, primeros 10 caracteres) cae en el periodo; para esos viajes trae **todos** los documentos de `tripCosts` con ese `tripId`.
+2. Si `category` es **`customer`**: busca viajes con `clientId == entity.id`, **`status == "completed"`** (comparación insensible a mayúsculas) y `scheduledStart` con fecha (primeros 10 caracteres `YYYY-MM-DD`) entre `period.start` y `period.end`; para cada viaje obtiene los documentos de `tripCharges` con ese `tripId` y genera ítems (`movement.type = tripCharge`, concepto = `name`, etc.).
+3. Si `category` es **`resource`**: busca `tripAssignments` con `entityType == "resource"` y `entityId == entity.id`, toma los `tripId` asociados y conserva solo los viajes con **`status == "completed"`** y cuya fecha (`scheduledStart`, primeros 10 caracteres) cae en el periodo; para esos viajes trae **todos** los documentos de `tripCosts` con ese `tripId`.
 4. Reemplaza la subcolección `settlements/{id}/items` y actualiza `totals`: `grossAmount` = suma de `amount` de los ítems, `settledAmount` y `pendingAmount` en `0`, `currency` la de la liquidación.
 
 **Índice Firestore recomendado:** consulta compuesta en `tripAssignments` con campos `entityType` (Ascending) y `entityId` (Ascending). Si falta, el error de deploy en consola o el enlace del log de la función indicará crear el índice.
 
 La app web invoca esta función tras crear o guardar una liquidación de categoría Cliente o Recurso (`syncSettlementItemsFromTrips` en `settlements.service.ts`).
+
+---
+
+## Triggers Firestore: ítems de liquidación ↔ movimiento
+
+### `syncMovementFromSettlementItem` (`onCreate`)
+
+**Ruta:** `settlements/{settlementId}/items/{itemId}`.
+
+**Comportamiento:** al crearse un ítem, si `movement.type` es **`tripCharge`** o **`tripCost`** y `movement.id` no está vacío:
+
+1. Lee `settlements/{settlementId}` para el **código** (`code`, o el id si falta).
+2. Actualiza `tripCharges/{movement.id}` o `tripCosts/{movement.id}` con `settlementId` y `settlement` = **código** de la liquidación (string; si falta `code` en el doc, se usa el id).
+
+Si la liquidación o el documento de cargo/costo no existe, **warning** en logs (sin error).
+
+### `clearMovementFromDeletedSettlementItem` (`onDelete`)
+
+**Misma ruta** — evento **`onDelete`**.
+
+Al borrarse el ítem:
+
+1. Si el `movement` era `tripCharge` / `tripCost`, actualiza ese documento con **`settlementId: null`** y **elimina** **`settlement`**, **solo si** el cargo/costo tenía `settlementId` igual a la liquidación del path.
+2. **Siempre** vuelve a leer la subcolección `items`, suma en cada documento `amount`, `settledAmount` y `pendingAmount`, y actualiza **`totals`** en `settlements/{settlementId}` (`grossAmount`, `settledAmount`, `pendingAmount`; **`totals.currency`** se mantiene la que ya tenía la liquidación).
 
 ---
 

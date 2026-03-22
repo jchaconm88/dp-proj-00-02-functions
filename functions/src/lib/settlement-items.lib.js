@@ -25,6 +25,11 @@ function num(v) {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** Solo viajes en estado `completed` entran en la liquidación (alineado con trips en la web). */
+function isTripCompleted(status) {
+  return String(status ?? "").trim().toLowerCase() === "completed";
+}
+
 /**
  * @param {FirebaseFirestore.Firestore} db
  * @param {{ category: string; entityId: string; periodStart: string; periodEnd: string }} params
@@ -48,6 +53,7 @@ async function buildSettlementItemsPayload(db, params) {
     const tripsInPeriod = [];
     for (const doc of tripsSnap.docs) {
       const t = doc.data() || {};
+      if (!isTripCompleted(t.status)) continue;
       if (!inPeriod(t.scheduledStart, periodStart, periodEnd)) continue;
       tripsInPeriod.push({ id: doc.id, code: String(t.code ?? "").trim() || doc.id });
     }
@@ -99,6 +105,7 @@ async function buildSettlementItemsPayload(db, params) {
       const tripDoc = await db.collection("trips").doc(tripId).get();
       if (!tripDoc.exists) continue;
       const t = tripDoc.data() || {};
+      if (!isTripCompleted(t.status)) continue;
       if (!inPeriod(t.scheduledStart, periodStart, periodEnd)) continue;
       tripsInPeriod.push({ id: tripId, code: String(t.code ?? "").trim() || tripId });
     }
@@ -213,9 +220,60 @@ async function replaceSettlementItems(db, settlementId, itemPayloads, createBy) 
   await flush();
 }
 
+/**
+ * Suma `amount`, `settledAmount` y `pendingAmount` de todos los docs en
+ * `settlements/{settlementId}/items` y actualiza `totals` en el documento padre.
+ * Conserva `totals.currency` del documento de liquidación (no mezcla monedas por ítem).
+ *
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {string} settlementId
+ * @returns {Promise<{ grossAmount: number; settledAmount: number; pendingAmount: number } | null>}
+ */
+async function recalculateSettlementTotalsFromItems(db, settlementId) {
+  const sid = String(settlementId ?? "").trim();
+  if (!sid) return null;
+
+  const settlementRef = db.collection("settlements").doc(sid);
+  const settlementSnap = await settlementRef.get();
+  if (!settlementSnap.exists) {
+    return null;
+  }
+
+  const parentData = settlementSnap.data() || {};
+  const totalsExisting =
+    parentData.totals && typeof parentData.totals === "object" ? parentData.totals : {};
+  const currency = String(totalsExisting.currency ?? "PEN").trim() || "PEN";
+
+  const itemsSnap = await settlementRef.collection("items").get();
+  let grossAmount = 0;
+  let settledAmount = 0;
+  let pendingAmount = 0;
+
+  for (const doc of itemsSnap.docs) {
+    const d = doc.data() || {};
+    grossAmount += num(d.amount);
+    settledAmount += num(d.settledAmount);
+    pendingAmount += num(d.pendingAmount);
+  }
+
+  await settlementRef.update({
+    totals: {
+      grossAmount,
+      settledAmount,
+      pendingAmount,
+      currency,
+    },
+    updateAt: FieldValue.serverTimestamp(),
+  });
+
+  return { grossAmount, settledAmount, pendingAmount };
+}
+
 module.exports = {
   tripDateKey,
   inPeriod,
+  isTripCompleted,
   buildSettlementItemsPayload,
   replaceSettlementItems,
+  recalculateSettlementTotalsFromItems,
 };
