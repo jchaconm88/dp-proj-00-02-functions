@@ -4,7 +4,7 @@ const { db } = require("../../lib/firebase");
 const { buildSettlementItemsPayload, replaceSettlementItems } = require("../../lib/settlement-items.lib");
 
 /**
- * Recalcula ítems de una liquidación según categoría (Cliente → tripCharges, Recurso → tripCosts)
+ * Recalcula ítems de una liquidación según categoría (Cliente → trip-charges, Recurso → trip-costs)
  * y actualiza totales (grossAmount = suma de amount; settled y pending en 0).
  *
  * @param {{ settlementId: string }} request.data

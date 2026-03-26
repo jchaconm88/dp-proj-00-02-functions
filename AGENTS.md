@@ -18,13 +18,22 @@ Resumen de convenciones de **`dp-proj-00-02-functions`**. Las reglas detalladas 
 
 - Nombre exportado: **`generateSequenceCode`**. La web (`dp-proj-00-02-web`) debe usar el mismo identificador en `httpsCallable`.
 
-## `syncTripCostFromTripAssignment` (Firestore)
+## Despachadores Firestore (un trigger por colección)
 
-- **`tripCosts` doc id** = `assignmentId` (mismo id que `tripAssignments`).
-- Si **ya existe** `tripCosts/{assignmentId}`: se hace **`update`** (patch), **no** delete + create.
-- Solo se **elimina** `tripCosts/{assignmentId}` cuando se **borra** la asignación.
-- El **`code` del tripCost** generado por sync usa la secuencia **`trip-cost`** (no el código de `tripAssignments`). Costos **`source: manual`**: no se sobrescribe `code` en sync (solo `tripId` + auditoría).
-- **`displayName`**: en sync `salary_rule` se copia de `tripAssignments.displayName`; en **`manual`** el sync fuerza `displayName: ""`.
+- **`onTripsWrite`** (`trips/{tripId}`): `Promise.all` con handlers internos (flete en `trip-charges`, cascada en borrado). Añadir tareas paralelas solo si no compiten por los mismos docs/triggers.
+- **`onTripAssignmentsWrite`** (`trip-assignments/{assignmentId}`): `Promise.all` con handlers (sync → `trip-costs`). Misma regla para paralelismo.
+
+### `trip-assignments` → `trip-costs` y flete en `trip-charges`
+
+- **Estándar de IDs** (documentos creados por sync en Functions): `sync__{tipo}__{idOrigen}`.
+  - Cargo de flete: `sync__trip_freight__{tripId}` en `trip-charges`.
+  - Costo por asignación: `sync__assignment_cost__{assignmentId}` en `trip-costs`.
+- Costos **`source: manual`**: el sync no sobrescribe `code` (solo `tripId` + auditoría).
+- **`displayName`**: en `salary_rule` se copia de la asignación; en **`manual`** el sync fuerza `displayName: ""`.
+
+### `settlements/{id}/items`
+
+- **`onSettlementItemsWrite`**: un solo `onDocumentWritten`; en borrado corre en paralelo desenlace en `trip-charges`/`trip-costs` y recálculo de `totals`.
 
 ## Tras renombrar archivos
 

@@ -84,7 +84,7 @@ async function buildSettlementItemsPayload(db, params) {
 
   if (category === "resource") {
     const assignSnap = await db
-      .collection("tripAssignments")
+      .collection("trip-assignments")
       .where("entityType", "==", "resource")
       .where("entityId", "==", entityIdTrim)
       .get();
@@ -113,7 +113,7 @@ async function buildSettlementItemsPayload(db, params) {
     const tripIdSet = new Set(tripsInPeriod.map((x) => x.id));
     const codeByTrip = new Map(tripsInPeriod.map((x) => [x.id, x.code]));
 
-    /** Todos los tripCosts de los viajes en periodo vinculados al recurso (vía asignación). */
+    /** Todos los trip-costs de los viajes en periodo vinculados al recurso (vía asignación). */
     const costsByTrip = await fetchTripCostsByTripIds(db, [...tripIdSet]);
     for (const tripId of tripIdSet) {
       const tripCode = codeByTrip.get(tripId) ?? tripId;
@@ -148,7 +148,7 @@ async function fetchTripChargesByTripIds(db, tripIds) {
   for (let i = 0; i < tripIds.length; i += chunk) {
     const part = tripIds.slice(i, i + chunk);
     if (!part.length) continue;
-    const snap = await db.collection("tripCharges").where("tripId", "in", part).get();
+    const snap = await db.collection("trip-charges").where("tripId", "in", part).get();
     for (const doc of snap.docs) {
       const row = { id: doc.id, ...(doc.data() || {}) };
       const tid = String(row.tripId ?? "").trim();
@@ -167,7 +167,7 @@ async function fetchTripCostsByTripIds(db, tripIds) {
   for (let i = 0; i < tripIds.length; i += chunk) {
     const part = tripIds.slice(i, i + chunk);
     if (!part.length) continue;
-    const snap = await db.collection("tripCosts").where("tripId", "in", part).get();
+    const snap = await db.collection("trip-costs").where("tripId", "in", part).get();
     for (const doc of snap.docs) {
       const row = { id: doc.id, ...(doc.data() || {}) };
       const tid = String(row.tripId ?? "").trim();

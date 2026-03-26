@@ -4,156 +4,237 @@ const { FieldValue } = require("firebase-admin/firestore");
 const { db } = require("../../lib/firebase");
 const { computeTripCostFromAssignment } = require("../../lib/trip-cost.service");
 const { resolveDraftCodeWithGenerator } = require("../../lib/sequence-code.service");
+const {
+  PROCESS,
+  buildSyncBlock,
+  isAssignmentCostSyncDoc,
+  canonicalAssignmentCostDocRef,
+} = require("../../lib/sync-document-ids.lib");
 
-/** Misma entidad que la web en costos de viaje (`TripCostDialog`: `generateSequenceCode(..., "trip-cost")`). */
 const TRIP_COST_SEQUENCE_ENTITY = "trip-cost";
+const SYSTEM_AUDIT = "system:trip-assignment-sync";
+
+async function resolveTripCostCode(assignmentId) {
+  const aid = String(assignmentId ?? "").trim();
+  const ref = canonicalAssignmentCostDocRef(db, aid);
+  const snap = await ref.get();
+  if (snap.exists) {
+    const c = String((snap.data() || {}).code ?? "").trim();
+    if (c) return c;
+  }
+  try {
+    return String(await resolveDraftCodeWithGenerator(db, "", TRIP_COST_SEQUENCE_ENTITY)).trim();
+  } catch (err) {
+    logger.warn("onTripAssignmentsWrite: no se pudo generar código trip-cost", {
+      assignmentId,
+      message: err instanceof Error ? err.message : String(err),
+    });
+    return assignmentId;
+  }
+}
 
 /**
- * Sincroniza tripCosts con tripAssignments:
- * - Alta / edición: documento tripCosts con ID = assignmentId (origen salary_rule desde sync).
- * - Borrado de asignación: elimina el tripCost con el mismo ID (no hay recrear: es delete explícito).
- * - Si ya existe tripCost: **update** (patch), no se borra ni se vuelve a crear el documento.
- * - Si el costo es `source: manual`, solo se actualiza tripId y auditoría; **no** se toca `code` (lo definió el usuario).
- * - Si status !== open, no recalcula monto/moneda (solo metadatos ligeros).
- * - `code` del tripCost: **nunca** el de `tripAssignments`; secuencia propia `trip-cost` o el ya guardado en el tripCost (re-sync).
- * - `displayName`: copia de `tripAssignments.displayName` (trim); en costos `manual` queda vacío (`""`).
+ * @param {FirebaseFirestore.Transaction} tx
+ * @param {string} assignmentId
+ * @returns {Promise<
+ *   | { mode: "update"; chargeRef: FirebaseFirestore.DocumentReference; existing: FirebaseFirestore.DocumentData }
+ *   | { mode: "create"; chargeRef: FirebaseFirestore.DocumentReference }
+ *   | { mode: "blocked"; reason: string }
+ * >}
  */
-const syncTripCostFromTripAssignment = onDocumentWritten(
-  {
-    document: "tripAssignments/{assignmentId}",
-    timeoutSeconds: 120,
-  },
-  async (event) => {
-    const assignmentId = event.params.assignmentId;
-    const afterSnap = event.data.after;
+async function readAssignmentCostSyncPlan(tx, assignmentId) {
+  const aid = String(assignmentId ?? "").trim();
+  const canonicalRef = canonicalAssignmentCostDocRef(db, aid);
 
-    if (!afterSnap.exists) {
-      try {
-        await db.collection("tripCosts").doc(assignmentId).delete();
-        logger.info("syncTripCost: tripCost eliminado (asignación borrada)", { assignmentId });
-      } catch (err) {
-        logger.warn("syncTripCost: error al eliminar tripCost", { assignmentId, err: String(err) });
+  const canSnap = await tx.get(canonicalRef);
+  if (canSnap.exists && isAssignmentCostSyncDoc(canSnap.data(), aid)) {
+    return { mode: "update", chargeRef: canonicalRef, existing: canSnap.data() || {} };
+  }
+
+  if (canSnap.exists) {
+    return { mode: "blocked", reason: "canonical_trip_cost_id_occupied" };
+  }
+
+  return { mode: "create", chargeRef: canonicalRef };
+}
+
+async function deleteSyncedTripCost(assignmentId) {
+  const aid = String(assignmentId ?? "").trim();
+  const canonicalRef = canonicalAssignmentCostDocRef(db, aid);
+
+  try {
+    await db.runTransaction(async (tx) => {
+      const canSnap = await tx.get(canonicalRef);
+
+      if (canSnap.exists && isAssignmentCostSyncDoc(canSnap.data(), aid)) {
+        tx.delete(canonicalRef);
       }
-      return;
-    }
+    });
+    logger.info("onTripAssignmentsWrite: trip-cost eliminado (asignación borrada)", { assignmentId: aid });
+  } catch (err) {
+    logger.warn("onTripAssignmentsWrite: error al eliminar trip-cost", { assignmentId: aid, err: String(err) });
+  }
+}
 
-    const data = afterSnap.data() || {};
-    const tripId = String(data.tripId ?? "").trim();
-    const assignmentDisplayName = String(data.displayName ?? "").trim();
+/**
+ * Elimina el costo sincronizado cuando se borra la asignación.
+ * @param {import("firebase-functions/v2/firestore").FirestoreEvent<import("firebase-functions/v2/firestore").Change<FirebaseFirestore.DocumentSnapshot> | undefined>} event
+ */
+async function handleAssignmentDeletedCost(event) {
+  const assignmentId = String(event.params.assignmentId ?? "").trim();
+  if (!assignmentId) return;
+  await deleteSyncedTripCost(assignmentId);
+}
 
-    if (!tripId) {
-      logger.warn("syncTripCost: omitido, sin tripId", { assignmentId });
-      return;
-    }
+/**
+ * Crea/actualiza `trip-costs` desde la asignación.
+ * @param {import("firebase-functions/v2/firestore").FirestoreEvent<import("firebase-functions/v2/firestore").Change<FirebaseFirestore.DocumentSnapshot> | undefined>} event
+ */
+async function handleAssignmentUpsertCost(event) {
+  const assignmentId = String(event.params.assignmentId ?? "").trim();
+  if (!assignmentId) {
+    logger.warn("onTripAssignmentsWrite: omitido, assignmentId vacío");
+    return;
+  }
+  const afterSnap = event.data.after;
+  if (!afterSnap.exists) return;
 
-    const costRef = db.collection("tripCosts").doc(assignmentId);
-    const existingSnap = await costRef.get();
+  const data = afterSnap.data() || {};
+  const tripId = String(data.tripId ?? "").trim();
+  const assignmentDisplayName = String(data.displayName ?? "").trim();
 
-    const previousCostCode = existingSnap.exists
-      ? String((existingSnap.data() || {}).code ?? "").trim()
-      : "";
+  logger.info("onTripAssignmentsWrite: dispatch", {
+    assignmentId,
+    tripId: tripId || "(vacío)",
+    entityType: String(data.entityType ?? ""),
+  });
 
-    /**
-     * Código del tripCost (independiente de `tripAssignments.code`):
-     * 1) Si ya existe documento con `code` → mantenerlo (re-sincronización sin consumir correlativo).
-     * 2) Si no → correlativo con entidad `trip-cost` (misma regla que `generateSequenceCode` con currentCode vacío).
-     */
-    let tripCostCode;
-    if (previousCostCode) {
-      tripCostCode = previousCostCode;
-    } else {
-      try {
-        tripCostCode = await resolveDraftCodeWithGenerator(db, "", TRIP_COST_SEQUENCE_ENTITY);
-        tripCostCode = String(tripCostCode ?? "").trim();
-      } catch (err) {
-        logger.warn("syncTripCost: no se pudo generar código trip-cost (secuencia)", {
-          assignmentId,
-          message: err instanceof Error ? err.message : String(err),
-        });
-        tripCostCode = assignmentId;
-      }
-    }
-    if (!tripCostCode) {
-      tripCostCode = assignmentId;
-    }
+  if (!tripId) {
+    logger.warn("onTripAssignmentsWrite: omitido, sin tripId en el documento", { assignmentId });
+    return;
+  }
 
-    let computed;
-    try {
-      computed = await computeTripCostFromAssignment(data, db, { allowPartial: true });
-    } catch (err) {
-      logger.warn("syncTripCost: cálculo con valores por defecto", {
-        assignmentId,
-        code: err.code,
-        message: err instanceof Error ? err.message : String(err),
-      });
-      computed = {
-        amount: 0,
-        currency: "PEN",
-        costType: "employee_payment",
-        resourceCostId: "",
-      };
-    }
+  const tripCostCode = await resolveTripCostCode(assignmentId);
 
-    const baseMeta = {
-      tripId,
-      code: tripCostCode,
-      displayName: assignmentDisplayName,
-      updateAt: FieldValue.serverTimestamp(),
-      updateBy: "system:trip-assignment-sync",
+  let computed;
+  try {
+    computed = await computeTripCostFromAssignment(data, db, { allowPartial: true });
+  } catch (err) {
+    logger.warn("onTripAssignmentsWrite: cálculo con valores por defecto", {
+      assignmentId,
+      code: err.code,
+      message: err instanceof Error ? err.message : String(err),
+    });
+    computed = {
+      amount: 0,
+      currency: "PEN",
+      costType: "employee_payment",
+      resourceCostId: "",
     };
+  }
 
-    if (existingSnap.exists) {
-      const existing = existingSnap.data() || {};
-      const source = String(existing.source ?? "salary_rule");
+  const syncBlock = buildSyncBlock(PROCESS.TRIP_ASSIGNMENT_COST, "assignment", assignmentId);
 
-      if (source === "manual") {
-        await costRef.update({
-          tripId,
-          displayName: "",
-          updateAt: FieldValue.serverTimestamp(),
-          updateBy: "system:trip-assignment-sync",
+  const baseMeta = {
+    tripId,
+    code: tripCostCode,
+    displayName: assignmentDisplayName,
+    updateAt: FieldValue.serverTimestamp(),
+    updateBy: SYSTEM_AUDIT,
+  };
+
+  try {
+    await db.runTransaction(async (tx) => {
+      const plan = await readAssignmentCostSyncPlan(tx, assignmentId);
+
+      if (plan.mode === "blocked") {
+        logger.warn("onTripAssignmentsWrite: no se escribe trip-cost (ID canónico ocupado)", {
+          assignmentId,
+          reason: plan.reason,
         });
-        logger.info("syncTripCost: costo manual — solo tripId/auditoría (code sin cambiar)", { assignmentId });
         return;
       }
 
-      const status = String(existing.status ?? "open");
-      const patch = {
+      if (plan.mode === "update") {
+        const existing = plan.existing || {};
+        const source = String(existing.source ?? "salary_rule");
+
+        if (source === "manual") {
+          tx.update(plan.chargeRef, {
+            tripId,
+            displayName: "",
+            updateAt: FieldValue.serverTimestamp(),
+            updateBy: SYSTEM_AUDIT,
+            sync: syncBlock,
+          });
+          return;
+        }
+
+        const status = String(existing.status ?? "open");
+        const patch = {
+          ...baseMeta,
+          entity: "assignment",
+          entityId: assignmentId,
+          type: computed.costType,
+          source: "salary_rule",
+          sync: syncBlock,
+        };
+
+        if (status === "open") {
+          patch.amount = computed.amount;
+          patch.currency = computed.currency;
+        }
+
+        tx.update(plan.chargeRef, patch);
+        return;
+      }
+
+      tx.set(plan.chargeRef, {
         ...baseMeta,
         entity: "assignment",
         entityId: assignmentId,
         type: computed.costType,
         source: "salary_rule",
-      };
-
-      if (status === "open") {
-        patch.amount = computed.amount;
-        patch.currency = computed.currency;
-      }
-
-      await costRef.update(patch);
-      logger.info("syncTripCost: tripCost actualizado", { assignmentId });
-      return;
-    }
-
-    await costRef.set({
-      ...baseMeta,
-      entity: "assignment",
-      entityId: assignmentId,
-      type: computed.costType,
-      source: "salary_rule",
-      amount: computed.amount,
-      currency: computed.currency,
-      status: "open",
-      settlementId: null,
-      createAt: FieldValue.serverTimestamp(),
-      createBy: "system:trip-assignment-sync",
+        amount: computed.amount,
+        currency: computed.currency,
+        status: "open",
+        settlementId: null,
+        createAt: FieldValue.serverTimestamp(),
+        createBy: SYSTEM_AUDIT,
+        sync: syncBlock,
+      });
     });
 
-    logger.info("syncTripCost: tripCost creado", { assignmentId });
+    logger.info("onTripAssignmentsWrite: trip-cost sincronizado", { assignmentId });
+  } catch (err) {
+    logger.error("onTripAssignmentsWrite: error en transacción", {
+      assignmentId,
+      err: String(err),
+    });
+  }
+}
+
+/**
+ * Despachador único para `trip-assignments/{assignmentId}`.
+ */
+const onTripAssignmentsWrite = onDocumentWritten(
+  {
+    document: "trip-assignments/{assignmentId}",
+    timeoutSeconds: 120,
+  },
+  async (event) => {
+    if (!event.data.after.exists) {
+      await Promise.all([handleAssignmentDeletedCost(event)]);
+      return;
+    }
+    await Promise.all([
+      handleAssignmentUpsertCost(event),
+      // Otros syncs independientes del mismo evento:
+      // handleAssignmentFoo(event),
+    ]);
   }
 );
 
 module.exports = {
-  syncTripCostFromTripAssignment,
+  onTripAssignmentsWrite,
 };

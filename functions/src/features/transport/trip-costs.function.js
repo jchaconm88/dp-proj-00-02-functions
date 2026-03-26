@@ -35,7 +35,7 @@ const getResourcePerTripCost = onCall(
       throw new HttpsError("invalid-argument", "tripAssignmentId es obligatorio.");
     }
 
-    const assignmentSnap = await db.collection("tripAssignments").doc(tripAssignmentId).get();
+    const assignmentSnap = await db.collection("trip-assignments").doc(tripAssignmentId).get();
     if (!assignmentSnap.exists) {
       throw new HttpsError("not-found", "Asignación no encontrada.");
     }

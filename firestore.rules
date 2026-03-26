@@ -1,0 +1,111 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Perfiles: colección `users` (alineado con ~/lib/auth-context).
+    match /users/{userId} {
+      allow read, write: if isSignedIn()
+        && (request.auth.uid == userId
+          || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.roleIds.hasAny(['admin']));
+    }
+
+    match /roles/{roleId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.roleIds.hasAny(['admin']);
+    }
+
+    // --- Transporte (colecciones raíz en kebab-case donde aplica) ---
+    match /trip-assignments/{docId} {
+      allow read, write: if isSignedIn();
+    }
+    match /trip-charges/{docId} {
+      allow read, write: if isSignedIn();
+    }
+    match /trip-costs/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /trips/{tripId} {
+      allow read, write: if isSignedIn();
+      match /tripStops/{stopId} {
+        allow read, write: if isSignedIn();
+      }
+    }
+
+    match /settlements/{settlementId} {
+      allow read, write: if isSignedIn();
+      match /items/{itemId} {
+        allow read, write: if isSignedIn();
+      }
+    }
+
+    match /transport-contracts/{contractId} {
+      allow read, write: if isSignedIn();
+      match /transport-rate-rules/{ruleId} {
+        allow read, write: if isSignedIn();
+      }
+    }
+
+    match /transport-services/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /drivers/{docId} {
+      allow read, write: if isSignedIn();
+    }
+    match /vehicles/{docId} {
+      allow read, write: if isSignedIn();
+    }
+    match /routes/{routeId} {
+      allow read, write: if isSignedIn();
+      match /stops/{stopId} {
+        allow read, write: if isSignedIn();
+      }
+    }
+    match /plans/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /clients/{clientId} {
+      allow read, write: if isSignedIn();
+      match /locations/{locationId} {
+        allow read, write: if isSignedIn();
+      }
+    }
+    match /document-types/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /orders/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /employees/{docId} {
+      allow read, write: if isSignedIn();
+    }
+    match /positions/{docId} {
+      allow read, write: if isSignedIn();
+    }
+    match /resources/{resourceId} {
+      allow read, write: if isSignedIn();
+      match /resourceCosts/{costId} {
+        allow read, write: if isSignedIn();
+      }
+    }
+
+    match /sequences/{docId} {
+      allow read, write: if isSignedIn();
+    }
+    match /counters/{docId} {
+      allow read, write: if isSignedIn();
+    }
+    match /modules/{docId} {
+      allow read, write: if isSignedIn();
+    }
+  }
+}

@@ -255,37 +255,60 @@ La autenticación usa una **cuenta de servicio** y `GOOGLE_APPLICATION_CREDENTIA
 **Comportamiento:**
 
 1. Lee el documento `settlements/{settlementId}`.
-2. Si `category` es **`customer`**: busca viajes con `clientId == entity.id`, **`status == "completed"`** (comparación insensible a mayúsculas) y `scheduledStart` con fecha (primeros 10 caracteres `YYYY-MM-DD`) entre `period.start` y `period.end`; para cada viaje obtiene los documentos de `tripCharges` con ese `tripId` y genera ítems (`movement.type = tripCharge`, concepto = `name`, etc.).
-3. Si `category` es **`resource`**: busca `tripAssignments` con `entityType == "resource"` y `entityId == entity.id`, toma los `tripId` asociados y conserva solo los viajes con **`status == "completed"`** y cuya fecha (`scheduledStart`, primeros 10 caracteres) cae en el periodo; para esos viajes trae **todos** los documentos de `tripCosts` con ese `tripId`.
+2. Si `category` es **`customer`**: busca viajes con `clientId == entity.id`, **`status == "completed"`** (comparación insensible a mayúsculas) y `scheduledStart` con fecha (primeros 10 caracteres `YYYY-MM-DD`) entre `period.start` y `period.end`; para cada viaje obtiene los documentos de `trip-charges` con ese `tripId` y genera ítems (`movement.type = tripCharge`, concepto = `name`, etc.).
+3. Si `category` es **`resource`**: busca `trip-assignments` con `entityType == "resource"` y `entityId == entity.id`, toma los `tripId` asociados y conserva solo los viajes con **`status == "completed"`** y cuya fecha (`scheduledStart`, primeros 10 caracteres) cae en el periodo; para esos viajes trae **todos** los documentos de `trip-costs` con ese `tripId`.
 4. Reemplaza la subcolección `settlements/{id}/items` y actualiza `totals`: `grossAmount` = suma de `amount` de los ítems, `settledAmount` y `pendingAmount` en `0`, `currency` la de la liquidación.
 
-**Índice Firestore recomendado:** consulta compuesta en `tripAssignments` con campos `entityType` (Ascending) y `entityId` (Ascending). Si falta, el error de deploy en consola o el enlace del log de la función indicará crear el índice.
+**Índice Firestore recomendado:** consulta compuesta en `trip-assignments` con campos `entityType` (Ascending) y `entityId` (Ascending). Si falta, el error de deploy en consola o el enlace del log de la función indicará crear el índice.
 
 La app web invoca esta función tras crear o guardar una liquidación de categoría Cliente o Recurso (`syncSettlementItemsFromTrips` en `settlements.service.ts`).
 
 ---
 
+## Triggers Firestore: sync de cargos/costos por IDs canónicos
+
+Estas functions generan/actualizan documentos en `trip-charges` y `trip-costs` con un **ID determinista** (para idempotencia ante reintentos).
+
+### Estándar de IDs canónicos
+
+- **Formato**: `sync__{tipo}__{idOrigen}`
+- **Flete por viaje** (`trip-charges`): `sync__trip_freight__{tripId}`
+- **Costo por asignación** (`trip-costs`): `sync__assignment_cost__{assignmentId}`
+
+### `onTripsWrite` (`onDocumentWritten`)
+
+**Ruta:** `trips/{tripId}`
+
+- **Upsert flete**: crea/actualiza `trip-charges/sync__trip_freight__{tripId}` con `sync.process = "trip-freight-sync"`.
+- **Borrado**: elimina el cargo de flete canónico y hace cascada de datos del viaje (cargos/costos/asignaciones/paradas).
+
+### `onTripAssignmentsWrite` (`onDocumentWritten`)
+
+**Ruta:** `trip-assignments/{assignmentId}`
+
+- **Upsert costo**: crea/actualiza `trip-costs/sync__assignment_cost__{assignmentId}` con `sync.process = "trip-assignment-cost-sync"`.
+- **Borrado**: elimina el costo canónico si fue creado por sync.
+
+---
+
 ## Triggers Firestore: ítems de liquidación ↔ movimiento
 
-### `syncMovementFromSettlementItem` (`onCreate`)
+### `onSettlementItemsWrite` (`onDocumentWritten`)
 
-**Ruta:** `settlements/{settlementId}/items/{itemId}`.
+**Ruta:** `settlements/{settlementId}/items/{itemId}` (un solo trigger; antes eran `onCreate` + `onDelete`).
 
-**Comportamiento:** al crearse un ítem, si `movement.type` es **`tripCharge`** o **`tripCost`** y `movement.id` no está vacío:
+**Alta (`!before.exists && after.exists`):** `Promise.all` con el handler que enlaza movimiento:
 
-1. Lee `settlements/{settlementId}` para el **código** (`code`, o el id si falta).
-2. Actualiza `tripCharges/{movement.id}` o `tripCosts/{movement.id}` con `settlementId` y `settlement` = **código** de la liquidación (string; si falta `code` en el doc, se usa el id).
+- Si `movement.type` es **`tripCharge`** o **`tripCost`** y `movement.id` no está vacío:
+  1. Lee `settlements/{settlementId}` para el **código** (`code`, o el id si falta).
+  2. Actualiza `trip-charges/{movement.id}` o `trip-costs/{movement.id}` con `settlementId` y `settlement` = código de la liquidación.
 
-Si la liquidación o el documento de cargo/costo no existe, **warning** en logs (sin error).
+**Borrado (`before.exists && !after.exists`):** `Promise.all` en paralelo:
 
-### `clearMovementFromDeletedSettlementItem` (`onDelete`)
+1. **Desenlazar:** si el `movement` era `tripCharge` / `tripCost`, pone **`settlementId: null`** y borra **`settlement`** en ese cargo/costo **solo si** seguía apuntando a esta liquidación.
+2. **Totales:** vuelve a leer `items`, suma `amount` / `settledAmount` / `pendingAmount` y actualiza **`totals`** en `settlements/{settlementId}` (la moneda de `totals` se conserva).
 
-**Misma ruta** — evento **`onDelete`**.
-
-Al borrarse el ítem:
-
-1. Si el `movement` era `tripCharge` / `tripCost`, actualiza ese documento con **`settlementId: null`** y **elimina** **`settlement`**, **solo si** el cargo/costo tenía `settlementId` igual a la liquidación del path.
-2. **Siempre** vuelve a leer la subcolección `items`, suma en cada documento `amount`, `settledAmount` y `pendingAmount`, y actualiza **`totals`** en `settlements/{settlementId}` (`grossAmount`, `settledAmount`, `pendingAmount`; **`totals.currency`** se mantiene la que ya tenía la liquidación).
+**Actualización del ítem:** por ahora sin lógica adicional (se puede extender con más handlers en `Promise.all`).
 
 ---
 

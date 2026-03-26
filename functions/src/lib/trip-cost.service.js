@@ -13,9 +13,12 @@ async function getTripCostFromAssignment(assignment, db, options = {}) {
   const entityId = String(assignment.entityId ?? "").trim();
 
   if (!entityId) {
-    const err = new Error("MISSING_ENTITY_ID");
-    err.code = "MISSING_ENTITY_ID";
-    throw err;
+    if (!allowPartial) {
+      const err = new Error("MISSING_ENTITY_ID");
+      err.code = "MISSING_ENTITY_ID";
+      throw err;
+    }
+    return { amount: 0, currency: "PEN", costType: "employee_payment", resourceCostId: "" };
   }
 
   if (entityType === "resource") {
@@ -109,9 +112,12 @@ async function getTripCostFromAssignment(assignment, db, options = {}) {
     return { amount, currency, costType: "employee_payment", resourceCostId: "" };
   }
 
-  const err = new Error("INVALID_ENTITY_TYPE");
-  err.code = "INVALID_ENTITY_TYPE";
-  throw err;
+  if (!allowPartial) {
+    const err = new Error("INVALID_ENTITY_TYPE");
+    err.code = "INVALID_ENTITY_TYPE";
+    throw err;
+  }
+  return { amount: 0, currency: "PEN", costType: "employee_payment", resourceCostId: "" };
 }
 
 module.exports = {
