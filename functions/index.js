@@ -1,5 +1,8 @@
 const { authFunction } = require("./src/features/auth/auth.function");
-const { getResourcePerTripCost } = require("./src/features/transport/trip-costs.function");
+const {
+  getResourcePerTripCost,
+  getPerTripCostByEntity,
+} = require("./src/features/transport/trip-costs.function");
 const { onTripAssignmentsWrite } = require("./src/features/transport/trip-assignments-sync.function");
 const { onTripsWrite } = require("./src/features/transport/trips-sync.function");
 const { generateSequenceCode } = require("./src/features/system/sequences.function");
@@ -9,6 +12,7 @@ const { onSettlementItemsWrite } = require("./src/features/transport/settlement-
 
 exports.authFunction = authFunction;
 exports.getResourcePerTripCost = getResourcePerTripCost;
+exports.getPerTripCostByEntity = getPerTripCostByEntity;
 exports.onTripAssignmentsWrite = onTripAssignmentsWrite;
 exports.onTripsWrite = onTripsWrite;
 exports.generateSequenceCode = generateSequenceCode;

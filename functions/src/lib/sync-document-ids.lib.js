@@ -11,6 +11,7 @@ const PREFIX = "sync";
 const PROCESS = {
   TRIP_FREIGHT: "trip-freight-sync",
   TRIP_ASSIGNMENT_COST: "trip-assignment-cost-sync",
+  TRIP_ASSIGNMENT_CHARGE: "trip-assignment-charge-sync",
 };
 
 const LEGACY_SYNC_SOURCE_FREIGHT = "trip-freight-sync";
@@ -54,6 +55,21 @@ function canonicalAssignmentCostDocId(assignmentId) {
  */
 function canonicalAssignmentCostDocRef(db, assignmentId) {
   return db.collection("trip-costs").doc(canonicalAssignmentCostDocId(assignmentId));
+}
+
+/**
+ * @param {string} assignmentId
+ */
+function canonicalAssignmentChargeDocId(assignmentId) {
+  return canonicalSyncDocId("assignment_charge", assignmentId);
+}
+
+/**
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {string} assignmentId
+ */
+function canonicalAssignmentChargeDocRef(db, assignmentId) {
+  return db.collection("trip-charges").doc(canonicalAssignmentChargeDocId(assignmentId));
 }
 
 /**
@@ -114,6 +130,32 @@ function isAssignmentCostSyncDoc(data, assignmentId) {
   return false;
 }
 
+/**
+ * @param {FirebaseFirestore.DocumentData | undefined} data
+ * @param {string} assignmentId
+ */
+function isAssignmentChargeSyncDoc(data, assignmentId) {
+  if (!data || typeof data !== "object") return false;
+  const aid = String(assignmentId ?? "").trim();
+  const sync = data.sync && typeof data.sync === "object" ? data.sync : null;
+  if (sync) {
+    return (
+      String(sync.process ?? "").trim() === PROCESS.TRIP_ASSIGNMENT_CHARGE &&
+      String(sync.source ?? "").trim() === "assignment" &&
+      String(sync.sourceId ?? "").trim() === aid
+    );
+  }
+  const createBy = String(data.createBy ?? "");
+  const updateBy = String(data.updateBy ?? "");
+  if (
+    createBy.includes("trip-assignment-sync") ||
+    updateBy.includes("trip-assignment-sync")
+  ) {
+    return String(data.type ?? "") === "additional_support" && String(data.entityId ?? "").trim() === aid;
+  }
+  return false;
+}
+
 module.exports = {
   SEP,
   PREFIX,
@@ -123,8 +165,11 @@ module.exports = {
   canonicalTripFreightChargeDocRef,
   canonicalAssignmentCostDocId,
   canonicalAssignmentCostDocRef,
+  canonicalAssignmentChargeDocId,
+  canonicalAssignmentChargeDocRef,
   LEGACY_SYNC_SOURCE_FREIGHT,
   buildSyncBlock,
   isFreightSyncChargeDoc,
   isAssignmentCostSyncDoc,
+  isAssignmentChargeSyncDoc,
 };

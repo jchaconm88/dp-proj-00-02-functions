@@ -68,4 +68,48 @@ const getResourcePerTripCost = onCall(
 
 module.exports = {
   getResourcePerTripCost,
+  getPerTripCostByEntity: onCall(
+    {
+      cors: true,
+      timeoutSeconds: 60,
+    },
+    async (request) => {
+      if (!request.auth) {
+        throw new HttpsError("unauthenticated", "Debes iniciar sesión para consultar costos.");
+      }
+
+      const entityType = String(request.data?.entityType ?? "").trim();
+      const entityId = String(request.data?.entityId ?? "").trim();
+      if (!entityType || !entityId) {
+        throw new HttpsError("invalid-argument", "entityType y entityId son obligatorios.");
+      }
+      if (entityType !== "employee" && entityType !== "resource") {
+        throw new HttpsError("failed-precondition", "entityType debe ser employee o resource.");
+      }
+
+      try {
+        const computed = await computeTripCostFromAssignment(
+          { entityType, entityId },
+          db,
+          { allowPartial: false }
+        );
+        const sourceId =
+          computed.costType === "resource_payment" && computed.resourceCostId
+            ? computed.resourceCostId
+            : entityId;
+        return {
+          entityType,
+          entityId,
+          sourceId,
+          amount: computed.amount,
+          currency: computed.currency,
+        };
+      } catch (e) {
+        if (e instanceof HttpsError) throw e;
+        const mapped = mapComputeError(e);
+        if (mapped instanceof HttpsError) throw mapped;
+        throw new HttpsError("internal", e instanceof Error ? e.message : "Error al calcular costo.");
+      }
+    }
+  ),
 };

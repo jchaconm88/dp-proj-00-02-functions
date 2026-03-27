@@ -140,6 +140,43 @@ async function resolveFreightChargeCode(tripId) {
   }
 }
 
+async function resolveFreightChargeType() {
+  try {
+    const snap = await db
+      .collection("charge-types")
+      .where("type", "==", "charge")
+      .where("source", "==", "service")
+      .get();
+    if (snap.empty) return { id: "", name: "" };
+
+    const list = snap.docs
+      .map((d) => ({ id: d.id, ...(d.data() || {}) }))
+      .filter((x) => x.active !== false);
+    if (!list.length) return { id: "", name: "" };
+
+    const withScore = list.map((x) => {
+      const n = String(x.name ?? "").trim().toLowerCase();
+      const c = String(x.code ?? "").trim().toLowerCase();
+      const cat = String(x.category ?? "").trim().toLowerCase();
+      let score = 0;
+      if (cat === "base") score += 3;
+      if (n.includes("flete") || c.includes("flete") || n.includes("freight") || c.includes("freight")) score += 2;
+      return { x, score };
+    });
+    withScore.sort((a, b) => b.score - a.score);
+    const pick = withScore[0].x;
+    return {
+      id: String(pick.id ?? "").trim(),
+      name: String(pick.name ?? "").trim() || String(pick.code ?? "").trim() || String(pick.id ?? "").trim(),
+    };
+  } catch (err) {
+    logger.warn("onTripsWrite: no se pudo resolver charge-type para flete", {
+      message: err instanceof Error ? err.message : String(err),
+    });
+    return { id: "", name: "" };
+  }
+}
+
 /**
  * @param {FirebaseFirestore.Transaction} tx
  * @param {string} tripId
@@ -207,6 +244,7 @@ async function syncFreightTripChargeFromTrip(trip, tripId) {
   }
 
   const code = await resolveFreightChargeCode(tid);
+  const freightChargeType = await resolveFreightChargeType();
   const name =
     pricing.serviceName ||
     String(trip.transportService ?? "").trim() ||
@@ -223,7 +261,8 @@ async function syncFreightTripChargeFromTrip(trip, tripId) {
     code,
     tripId: tid,
     name,
-    type: "freight",
+    chargeTypeId: freightChargeType.id,
+    chargeType: freightChargeType.name,
     source: "contract",
     entityType: "transportService",
     entityId: transportServiceId,
@@ -248,10 +287,7 @@ async function syncFreightTripChargeFromTrip(trip, tripId) {
       }
 
       if (plan.mode === "update") {
-        tx.update(plan.chargeRef, {
-          ...bodyCore,
-          transportServiceId: FieldValue.delete(),
-        });
+        tx.update(plan.chargeRef, bodyCore);
         return;
       }
 
@@ -259,7 +295,6 @@ async function syncFreightTripChargeFromTrip(trip, tripId) {
         ...bodyCore,
         createAt: FieldValue.serverTimestamp(),
         createBy: SYSTEM_AUDIT,
-        transportServiceId: FieldValue.delete(),
       });
     });
 
