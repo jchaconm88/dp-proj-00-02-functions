@@ -5,11 +5,43 @@
 
 const { FieldValue } = require("firebase-admin/firestore");
 
-/** Primeros 10 caracteres YYYY-MM-DD de scheduledStart (string). */
+function formatYmd(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Clave YYYY-MM-DD para comparar con periodo de liquidación.
+ * Soporta string ISO, Firestore Timestamp (Admin SDK), y Date.
+ */
 function tripDateKey(scheduledStart) {
-  const s = String(scheduledStart ?? "").trim();
-  if (s.length < 10) return "";
-  return s.slice(0, 10);
+  if (scheduledStart == null || scheduledStart === "") return "";
+
+  if (typeof scheduledStart.toDate === "function") {
+    try {
+      const d = scheduledStart.toDate();
+      if (d instanceof Date && !Number.isNaN(d.getTime())) return formatYmd(d);
+    } catch (_) {
+      /* continuar con otros formatos */
+    }
+  }
+
+  if (scheduledStart instanceof Date && !Number.isNaN(scheduledStart.getTime())) {
+    return formatYmd(scheduledStart);
+  }
+
+  const s = String(scheduledStart).trim();
+  if (s.length >= 10 && /^\d{4}-\d{2}-\d{2}/.test(s)) {
+    return s.slice(0, 10);
+  }
+
+  const parsed = new Date(s);
+  if (!Number.isNaN(parsed.getTime())) {
+    return formatYmd(parsed);
+  }
+  return "";
 }
 
 function inPeriod(scheduledStart, periodStart, periodEnd) {
@@ -25,9 +57,16 @@ function num(v) {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Solo viajes en estado `completed` entran en la liquidación (alineado con trips en la web). */
-function isTripCompleted(status) {
-  return String(status ?? "").trim().toLowerCase() === "completed";
+/**
+ * Viajes liquidables: completados, en curso o ya pre-liquidados (re-sync de ítems).
+ */
+function isTripEligibleForSettlement(status) {
+  const s = String(status ?? "").trim().toLowerCase();
+  return s === "completed" || s === "in_progress" || s === "pre_settled";
+}
+
+function tripRouteLabel(t) {
+  return String(t.route ?? t.routeCode ?? "").trim();
 }
 
 /**
@@ -53,28 +92,49 @@ async function buildSettlementItemsPayload(db, params) {
     const tripsInPeriod = [];
     for (const doc of tripsSnap.docs) {
       const t = doc.data() || {};
-      if (!isTripCompleted(t.status)) continue;
+      if (!isTripEligibleForSettlement(t.status)) continue;
       if (!inPeriod(t.scheduledStart, periodStart, periodEnd)) continue;
-      tripsInPeriod.push({ id: doc.id, code: String(t.code ?? "").trim() || doc.id });
+      tripsInPeriod.push({
+        id: doc.id,
+        code: String(t.code ?? "").trim() || doc.id,
+        route: tripRouteLabel(t),
+        scheduledStart: tripDateKey(t.scheduledStart),
+      });
     }
 
     const tripIds = tripsInPeriod.map((x) => x.id);
-    const codeByTrip = new Map(tripsInPeriod.map((x) => [x.id, x.code]));
+    const metaByTrip = new Map(tripsInPeriod.map((x) => [x.id, x]));
 
     const chargesByTrip = await fetchTripChargesByTripIds(db, tripIds);
     for (const tripId of tripIds) {
-      const tripCode = codeByTrip.get(tripId) ?? tripId;
+      const meta = metaByTrip.get(tripId);
+      const tripCode = meta?.code ?? tripId;
+      const tripRoute = meta?.route ?? "";
+      const tripScheduled = meta?.scheduledStart ?? "";
       const charges = chargesByTrip.get(tripId) ?? [];
       for (const ch of charges) {
         const amount = num(ch.amount);
         grossAmount += amount;
+        const chargeTypeId = String(ch.chargeTypeId ?? "").trim();
+        const chargeType = String(ch.chargeType ?? "").trim();
         items.push({
           movement: { type: "tripCharge", id: ch.id },
-          trip: { id: tripId, code: tripCode },
-          concept: String(ch.name ?? "").trim() || String(ch.code ?? "").trim() || "Cargo",
+          trip: {
+            id: tripId,
+            code: tripCode,
+            route: tripRoute,
+            scheduledStart: tripScheduled,
+          },
+          chargeTypeId,
+          chargeType,
+          concept:
+            String(ch.name ?? "").trim() ||
+            chargeType ||
+            String(ch.code ?? "").trim() ||
+            "Cargo",
           amount,
           settledAmount: 0,
-          pendingAmount: 0,
+          pendingAmount: amount,
           currency: String(ch.currency ?? settlementCurrency).trim() || settlementCurrency,
         });
       }
@@ -105,29 +165,50 @@ async function buildSettlementItemsPayload(db, params) {
       const tripDoc = await db.collection("trips").doc(tripId).get();
       if (!tripDoc.exists) continue;
       const t = tripDoc.data() || {};
-      if (!isTripCompleted(t.status)) continue;
+      if (!isTripEligibleForSettlement(t.status)) continue;
       if (!inPeriod(t.scheduledStart, periodStart, periodEnd)) continue;
-      tripsInPeriod.push({ id: tripId, code: String(t.code ?? "").trim() || tripId });
+      tripsInPeriod.push({
+        id: tripId,
+        code: String(t.code ?? "").trim() || tripId,
+        route: tripRouteLabel(t),
+        scheduledStart: tripDateKey(t.scheduledStart),
+      });
     }
 
     const tripIdSet = new Set(tripsInPeriod.map((x) => x.id));
-    const codeByTrip = new Map(tripsInPeriod.map((x) => [x.id, x.code]));
+    const metaByTrip = new Map(tripsInPeriod.map((x) => [x.id, x]));
 
     /** Todos los trip-costs de los viajes en periodo vinculados al recurso (vía asignación). */
     const costsByTrip = await fetchTripCostsByTripIds(db, [...tripIdSet]);
     for (const tripId of tripIdSet) {
-      const tripCode = codeByTrip.get(tripId) ?? tripId;
+      const meta = metaByTrip.get(tripId);
+      const tripCode = meta?.code ?? tripId;
+      const tripRoute = meta?.route ?? "";
+      const tripScheduled = meta?.scheduledStart ?? "";
       const costs = costsByTrip.get(tripId) ?? [];
       for (const c of costs) {
         const amount = num(c.amount);
         grossAmount += amount;
+        const chargeTypeId = String(c.chargeTypeId ?? "").trim();
+        const chargeType = String(c.chargeType ?? "").trim();
         items.push({
           movement: { type: "tripCost", id: c.id },
-          trip: { id: tripId, code: tripCode },
-          concept: String(c.displayName ?? "").trim() || String(c.code ?? "").trim() || "Costo",
+          trip: {
+            id: tripId,
+            code: tripCode,
+            route: tripRoute,
+            scheduledStart: tripScheduled,
+          },
+          chargeTypeId,
+          chargeType,
+          concept:
+            String(c.displayName ?? "").trim() ||
+            chargeType ||
+            String(c.code ?? "").trim() ||
+            "Costo",
           amount,
           settledAmount: 0,
-          pendingAmount: 0,
+          pendingAmount: amount,
           currency: String(c.currency ?? settlementCurrency).trim() || settlementCurrency,
         });
       }
@@ -185,6 +266,48 @@ async function fetchTripCostsByTripIds(db, tripIds) {
  * @param {object[]} itemPayloads datos sin createAt/createBy
  * @param {string|null} createBy
  */
+/**
+ * Pone `status: pre_settled` en los viajes que aún están `completed` o `in_progress`.
+ * Debe ejecutarse **antes** de `replaceSettlementItems`: el trigger de viajes al
+ * actualizar el doc puede escribir el cargo de flete con `settlementId: null`; los
+ * ítems de liquidación (creados después) vuelven a enlazar cargos/costos.
+ *
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {string[]} tripIds
+ * @param {string|null} updateBy
+ */
+async function setTripsToPreSettledForSettlement(db, tripIds, updateBy) {
+  const ids = [
+    ...new Set(
+      (tripIds || [])
+        .map((id) => String(id ?? "").trim())
+        .filter(Boolean)
+    ),
+  ];
+  if (!ids.length) return;
+
+  const chunkSize = 25;
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const part = ids.slice(i, i + chunkSize);
+    await Promise.all(
+      part.map(async (tripId) => {
+        const ref = db.collection("trips").doc(tripId);
+        const snap = await ref.get();
+        if (!snap.exists) return;
+        const st = String(snap.data()?.status ?? "")
+          .trim()
+          .toLowerCase();
+        if (st !== "completed" && st !== "in_progress") return;
+        await ref.update({
+          status: "pre_settled",
+          updateAt: FieldValue.serverTimestamp(),
+          updateBy: updateBy ?? null,
+        });
+      })
+    );
+  }
+}
+
 async function replaceSettlementItems(db, settlementId, itemPayloads, createBy) {
   const col = db.collection("settlements").doc(settlementId).collection("items");
   const existing = await col.get();
@@ -272,8 +395,11 @@ async function recalculateSettlementTotalsFromItems(db, settlementId) {
 module.exports = {
   tripDateKey,
   inPeriod,
-  isTripCompleted,
+  isTripEligibleForSettlement,
+  /** @deprecated usar isTripEligibleForSettlement */
+  isTripCompleted: (status) => String(status ?? "").trim().toLowerCase() === "completed",
   buildSettlementItemsPayload,
+  setTripsToPreSettledForSettlement,
   replaceSettlementItems,
   recalculateSettlementTotalsFromItems,
 };

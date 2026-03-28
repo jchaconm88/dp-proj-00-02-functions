@@ -1,7 +1,11 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { FieldValue } = require("firebase-admin/firestore");
 const { db } = require("../../lib/firebase");
-const { buildSettlementItemsPayload, replaceSettlementItems } = require("../../lib/settlement-items.lib");
+const {
+  buildSettlementItemsPayload,
+  setTripsToPreSettledForSettlement,
+  replaceSettlementItems,
+} = require("../../lib/settlement-items.lib");
 
 /**
  * Recalcula ítems de una liquidación según categoría (Cliente → trip-charges, Recurso → trip-costs)
@@ -79,23 +83,45 @@ const syncSettlementItems = onCall(
 
     const { items, grossAmount } = built;
 
-    const itemPayloads = items.map(({ movement, trip, concept, amount, settledAmount, pendingAmount, currency }) => ({
-      movement,
-      trip,
-      concept,
-      amount,
-      settledAmount,
-      pendingAmount,
-      currency,
-    }));
+    const itemPayloads = items.map(
+      ({
+        movement,
+        trip,
+        concept,
+        amount,
+        settledAmount,
+        pendingAmount,
+        currency,
+        chargeType,
+        chargeTypeId,
+      }) => ({
+        movement,
+        trip,
+        concept,
+        amount,
+        settledAmount,
+        pendingAmount,
+        currency,
+        chargeType: String(chargeType ?? "").trim(),
+        chargeTypeId: String(chargeTypeId ?? "").trim(),
+      })
+    );
 
+    const tripIdsForPreSettled = [
+      ...new Set(
+        items
+          .map((it) => String(it.trip?.id ?? "").trim())
+          .filter(Boolean)
+      ),
+    ];
+    await setTripsToPreSettledForSettlement(db, tripIdsForPreSettled, createBy);
     await replaceSettlementItems(db, settlementId, itemPayloads, createBy);
 
     await settlementRef.update({
       totals: {
         grossAmount,
         settledAmount: 0,
-        pendingAmount: 0,
+        pendingAmount: grossAmount,
         currency: settlementCurrency,
       },
       updateAt: FieldValue.serverTimestamp(),
