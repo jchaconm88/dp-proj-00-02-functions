@@ -107,5 +107,46 @@ service cloud.firestore {
     match /modules/{docId} {
       allow read, write: if isSignedIn();
     }
+
+    match /reportDefinitions/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn()
+        && (
+          !('notifyEmails' in request.resource.data)
+          || (
+            request.resource.data.notifyEmails is list
+            && request.resource.data.notifyEmails.size() <= 30
+          )
+        )
+        && (
+          !('exportTitleTemplate' in request.resource.data)
+          || (
+            request.resource.data.exportTitleTemplate is string
+            && request.resource.data.exportTitleTemplate.size() > 0
+            && request.resource.data.exportTitleTemplate.size() <= 300
+          )
+        )
+        && (
+          !('exportFileNameTemplate' in request.resource.data)
+          || (
+            request.resource.data.exportFileNameTemplate is string
+            && request.resource.data.exportFileNameTemplate.size() > 0
+            && request.resource.data.exportFileNameTemplate.size() <= 200
+          )
+        )
+        && (
+          !('notifyEmailSubjectTemplate' in request.resource.data)
+          || request.resource.data.notifyEmailSubjectTemplate is string
+        )
+        && (
+          !('notifyEmailBodyHtml' in request.resource.data)
+          || request.resource.data.notifyEmailBodyHtml is string
+        );
+    }
+
+    match /reportRuns/{docId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
   }
 }
