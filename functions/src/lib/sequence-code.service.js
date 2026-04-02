@@ -58,9 +58,11 @@ function toSequenceRecord(id, data) {
   };
 }
 
-async function getActiveSequenceByEntity(db, entity) {
+async function getActiveSequenceByEntity(db, entity, opts = {}) {
+  const companyId = String(opts.companyId ?? "").trim();
   const snap = await db
     .collection(COLLECTION_SEQUENCES)
+    .where("companyId", "==", companyId)
     .where("entity", "==", entity)
     .limit(1)
     .get();
@@ -70,8 +72,9 @@ async function getActiveSequenceByEntity(db, entity) {
   return rec.active !== false ? rec : null;
 }
 
-async function generateSequenceNumber(db, entity) {
-  const sequence = await getActiveSequenceByEntity(db, entity);
+async function generateSequenceNumber(db, entity, opts = {}) {
+  const companyId = String(opts.companyId ?? "").trim();
+  const sequence = await getActiveSequenceByEntity(db, entity, { companyId });
   if (!sequence) {
     throw new Error(`No existe una secuencia activa para la entidad "${entity}".`);
   }
@@ -86,6 +89,7 @@ async function generateSequenceNumber(db, entity) {
     if (!s.exists) {
       next = 1;
       tx.set(ref, {
+        companyId,
         sequenceId: sequence.id,
         sequence: `${sequence.entity} (${sequence.prefix})`.trim(),
         period,
@@ -109,11 +113,17 @@ async function generateSequenceNumber(db, entity) {
 async function resolveDraftCodeWithGenerator(db, draftCode, entity) {
   const trimmed = String(draftCode ?? "").trim();
   if (trimmed) return trimmed;
-  return generateSequenceNumber(db, entity);
+  throw new Error("companyId es requerido para generar correlativos.");
+}
+
+async function resolveDraftCodeWithGeneratorForCompany(db, draftCode, entity, opts = {}) {
+  const trimmed = String(draftCode ?? "").trim();
+  if (trimmed) return trimmed;
+  return generateSequenceNumber(db, entity, opts);
 }
 
 module.exports = {
-  resolveDraftCodeWithGenerator,
+  resolveDraftCodeWithGenerator: resolveDraftCodeWithGeneratorForCompany,
   generateSequenceNumber,
   getActiveSequenceByEntity,
 };

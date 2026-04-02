@@ -13,6 +13,8 @@ const { createReportRun } = require("./src/features/reports/create-report-run.fu
 const { processReportRun } = require("./src/features/reports/process-report-run.function");
 const { getReportRunDownloadUrl } = require("./src/features/reports/get-report-run-download-url.function");
 const { previewReportPivot } = require("./src/features/reports/preview-report-pivot.function");
+const { migrateMultiempresa } = require("./src/features/system/migrations/migrate-multiempresa.function");
+const { resolveAuthUidByEmail } = require("./src/features/auth/resolve-auth-uid.function");
 
 exports.authFunction = authFunction;
 exports.getResourcePerTripCost = getResourcePerTripCost;
@@ -27,3 +29,5 @@ exports.createReportRun = createReportRun;
 exports.processReportRun = processReportRun;
 exports.getReportRunDownloadUrl = getReportRunDownloadUrl;
 exports.previewReportPivot = previewReportPivot;
+exports.migrateMultiempresa = migrateMultiempresa;
+exports.resolveAuthUidByEmail = resolveAuthUidByEmail;

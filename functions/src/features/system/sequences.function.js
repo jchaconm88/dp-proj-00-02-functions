@@ -1,6 +1,7 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { db } = require("../../lib/firebase");
 const { resolveDraftCodeWithGenerator } = require("../../lib/sequence-code.service");
+const { assertCompanyMember } = require("../../lib/tenant-auth");
 
 /**
  * Resuelve el código a persistir (misma regla que DpCodeInput + guardado en la web).
@@ -17,6 +18,9 @@ const generateSequenceCode = onCall(
       throw new HttpsError("unauthenticated", "Debes iniciar sesión para generar códigos.");
     }
 
+    const companyId = String(request.data?.companyId ?? "").trim();
+    await assertCompanyMember(db, companyId, request.auth.uid);
+
     const entity = String(request.data?.entity ?? "").trim();
     if (!entity) {
       throw new HttpsError("invalid-argument", "entity es obligatoria.");
@@ -25,7 +29,7 @@ const generateSequenceCode = onCall(
     const currentCode = String(request.data?.currentCode ?? "");
 
     try {
-      const code = await resolveDraftCodeWithGenerator(db, currentCode, entity);
+      const code = await resolveDraftCodeWithGenerator(db, currentCode, entity, { companyId });
       if (!code || !String(code).trim()) {
         throw new HttpsError("internal", "No se pudo resolver el código.");
       }

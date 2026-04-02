@@ -3,11 +3,12 @@
  *
  * @param {Record<string, unknown>} assignment
  * @param {FirebaseFirestore.Firestore} db
- * @param {{ allowPartial?: boolean }} [options] - Si false (callable), falla con Error y .code
+ * @param {{ allowPartial?: boolean, companyId?: string }} [options] - Si false (callable), falla con Error y .code
  * @returns {Promise<{ amount: number; currency: string; costType: "employee_payment" | "resource_payment" }>}
  */
 async function getTripCostFromAssignment(assignment, db, options = {}) {
   const allowPartial = options.allowPartial !== false;
+  const companyId = String(options.companyId ?? "").trim();
 
   const entityType = String(assignment.entityType ?? "");
   const entityId = String(assignment.entityId ?? "").trim();
@@ -22,6 +23,25 @@ async function getTripCostFromAssignment(assignment, db, options = {}) {
   }
 
   if (entityType === "resource") {
+    const resourceSnap = await db.collection("resources").doc(entityId).get();
+    if (!resourceSnap.exists) {
+      if (!allowPartial) {
+        const err = new Error("RESOURCE_NOT_FOUND");
+        err.code = "RESOURCE_NOT_FOUND";
+        throw err;
+      }
+      return { amount: 0, currency: "PEN", costType: "resource_payment", resourceCostId: "" };
+    }
+    const resource = resourceSnap.data() || {};
+    if (companyId && String(resource.companyId ?? "") !== companyId) {
+      if (!allowPartial) {
+        const err = new Error("TENANT_MISMATCH");
+        err.code = "TENANT_MISMATCH";
+        throw err;
+      }
+      return { amount: 0, currency: "PEN", costType: "resource_payment", resourceCostId: "" };
+    }
+
     const costsSnap = await db
       .collection("resources")
       .doc(entityId)
@@ -81,6 +101,14 @@ async function getTripCostFromAssignment(assignment, db, options = {}) {
     }
 
     const employee = employeeSnap.data() || {};
+    if (companyId && String(employee.companyId ?? "") !== companyId) {
+      if (!allowPartial) {
+        const err = new Error("TENANT_MISMATCH");
+        err.code = "TENANT_MISMATCH";
+        throw err;
+      }
+      return { amount: 0, currency: "PEN", costType: "employee_payment", resourceCostId: "" };
+    }
     const payroll =
       employee.payroll && typeof employee.payroll === "object" && !Array.isArray(employee.payroll)
         ? employee.payroll

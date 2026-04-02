@@ -6,111 +6,187 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function myUid() {
+      return request.auth.uid;
+    }
+
+    function isPlatformAdmin() {
+      return isSignedIn()
+        && get(/databases/$(database)/documents/users/$(myUid())).data.roleIds.hasAny(['admin']);
+    }
+
+    /** Membership doc ID determinístico: `${companyId}_${uid}` */
+    function companyUserId(companyId, uid) {
+      return companyId + "_" + uid;
+    }
+
+    function isMember(companyId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/companyUsers/$(companyUserId(companyId, myUid())))
+        && get(/databases/$(database)/documents/companyUsers/$(companyUserId(companyId, myUid()))).data.status != "inactive";
+    }
+
+    /** Marcador en companyUsers.roleIds; alineado con la app (`__company_admin__`). */
+    function companyAdminForCompany(companyId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/companyUsers/$(companyUserId(companyId, myUid())))
+        && get(/databases/$(database)/documents/companyUsers/$(companyUserId(companyId, myUid()))).data.status != "inactive"
+        && get(/databases/$(database)/documents/companyUsers/$(companyUserId(companyId, myUid()))).data.roleIds is list
+        && get(/databases/$(database)/documents/companyUsers/$(companyUserId(companyId, myUid()))).data.roleIds.hasAny(["__company_admin__"]);
+    }
+
     // Perfiles: colección `users` (alineado con ~/lib/auth-context).
+    // Lectura también si el email del documento coincide con el token (perfiles legacy con docId != Auth UID).
     match /users/{userId} {
-      allow read, write: if isSignedIn()
+      allow read: if isSignedIn()
+        && (
+          request.auth.uid == userId
+          || (
+            resource.data.email is string
+            && request.auth.token.email != null
+            && resource.data.email == request.auth.token.email
+          )
+          || (
+            exists(/databases/$(database)/documents/users/$(myUid()))
+            && get(/databases/$(database)/documents/users/$(myUid())).data.roleIds.hasAny(['admin'])
+          )
+        );
+      allow write: if isSignedIn()
         && (request.auth.uid == userId
           || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.roleIds.hasAny(['admin']));
     }
 
-    match /roles/{roleId} {
+    match /companies/{companyId} {
+      allow read: if isMember(companyId) || isPlatformAdmin();
+      allow write: if isPlatformAdmin();
+    }
+
+    match /companyUsers/{membershipId} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn()
-        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.roleIds.hasAny(['admin']);
+      allow create: if isPlatformAdmin()
+        || (isSignedIn()
+          && request.resource.data.companyId is string
+          && request.resource.data.companyId.size() > 0
+          && request.resource.data.uid is string
+          && request.resource.data.uid.size() > 0
+          && companyAdminForCompany(request.resource.data.companyId));
+      allow update: if isPlatformAdmin()
+        || (isSignedIn()
+          && resource.data.companyId == request.resource.data.companyId
+          && resource.data.uid == request.resource.data.uid
+          && companyAdminForCompany(resource.data.companyId));
+      allow delete: if isPlatformAdmin()
+        || (isSignedIn() && companyAdminForCompany(resource.data.companyId));
+    }
+
+    match /roles/{roleId} {
+      allow read: if isSignedIn() && isMember(resource.data.companyId);
+      allow create: if isSignedIn()
+        && isMember(request.resource.data.companyId)
+        && request.resource.data.companyId is string
+        && request.resource.data.companyId.size() > 0;
+      allow update, delete: if isPlatformAdmin();
     }
 
     // --- Transporte (colecciones raíz en kebab-case donde aplica) ---
     match /trip-assignments/{docId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if isSignedIn() && isMember(resource.data.companyId);
     }
     match /trip-charges/{docId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if isSignedIn() && isMember(resource.data.companyId);
     }
     match /trip-costs/{docId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if isSignedIn() && isMember(resource.data.companyId);
     }
 
     match /trips/{tripId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if isSignedIn() && isMember(resource.data.companyId);
       match /tripStops/{stopId} {
-        allow read, write: if isSignedIn();
+        allow read, write: if isSignedIn()
+          && isMember(get(/databases/$(database)/documents/trips/$(tripId)).data.companyId);
       }
     }
 
     match /settlements/{settlementId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if isSignedIn() && isMember(resource.data.companyId);
       match /items/{itemId} {
-        allow read, write: if isSignedIn();
+        allow read, write: if isSignedIn()
+          && isMember(get(/databases/$(database)/documents/settlements/$(settlementId)).data.companyId);
       }
     }
 
     match /transport-contracts/{contractId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if isSignedIn() && isMember(resource.data.companyId);
       match /transport-rate-rules/{ruleId} {
-        allow read, write: if isSignedIn();
+        allow read, write: if isSignedIn()
+          && isMember(get(/databases/$(database)/documents/transport-contracts/$(contractId)).data.companyId);
       }
     }
 
     match /transport-services/{docId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if isSignedIn() && isMember(resource.data.companyId);
     }
 
     match /drivers/{docId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if isSignedIn() && isMember(resource.data.companyId);
     }
     match /vehicles/{docId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if isSignedIn() && isMember(resource.data.companyId);
     }
     match /routes/{routeId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if isSignedIn() && isMember(resource.data.companyId);
       match /stops/{stopId} {
-        allow read, write: if isSignedIn();
+        allow read, write: if isSignedIn()
+          && isMember(get(/databases/$(database)/documents/routes/$(routeId)).data.companyId);
       }
     }
     match /plans/{docId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if isSignedIn() && isMember(resource.data.companyId);
     }
 
     match /clients/{clientId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if isSignedIn() && isMember(resource.data.companyId);
       match /locations/{locationId} {
-        allow read, write: if isSignedIn();
+        allow read, write: if isSignedIn()
+          && isMember(get(/databases/$(database)/documents/clients/$(clientId)).data.companyId);
       }
     }
     match /document-types/{docId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if isSignedIn() && isMember(resource.data.companyId);
     }
 
     match /orders/{docId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if isSignedIn() && isMember(resource.data.companyId);
     }
 
     match /employees/{docId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if isSignedIn() && isMember(resource.data.companyId);
     }
     match /positions/{docId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if isSignedIn() && isMember(resource.data.companyId);
     }
     match /resources/{resourceId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if isSignedIn() && isMember(resource.data.companyId);
       match /resourceCosts/{costId} {
-        allow read, write: if isSignedIn();
+        allow read, write: if isSignedIn()
+          && isMember(get(/databases/$(database)/documents/resources/$(resourceId)).data.companyId);
       }
     }
 
     match /sequences/{docId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if isSignedIn() && isMember(resource.data.companyId);
     }
     match /counters/{docId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if isSignedIn() && isMember(resource.data.companyId);
     }
     match /modules/{docId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if isSignedIn() && isMember(resource.data.companyId);
     }
 
     match /reportDefinitions/{docId} {
-      allow read: if isSignedIn();
+      allow read: if isSignedIn() && isMember(resource.data.companyId);
       allow write: if isSignedIn()
+        && isMember(request.resource.data.companyId)
         && (
           !('notifyEmails' in request.resource.data)
           || (
@@ -145,7 +221,7 @@ service cloud.firestore {
     }
 
     match /reportRuns/{docId} {
-      allow read: if isSignedIn();
+      allow read: if isSignedIn() && isMember(resource.data.companyId);
       allow write: if false;
     }
   }

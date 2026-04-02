@@ -1,5 +1,6 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { admin, db } = require("../../lib/firebase");
+const { assertCompanyMember } = require("../../lib/tenant-auth");
 
 const getReportRunDownloadUrl = onCall(
   {
@@ -22,6 +23,9 @@ const getReportRunDownloadUrl = onCall(
     }
 
     const run = snap.data() ?? {};
+    const companyId = String(run.companyId ?? "").trim();
+    await assertCompanyMember(db, companyId, request.auth.uid);
+
     if (String(run.status ?? "") !== "completed") {
       throw new HttpsError("failed-precondition", "El reporte aún no está listo o falló.");
     }

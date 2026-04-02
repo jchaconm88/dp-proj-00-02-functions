@@ -1,6 +1,7 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { db } = require("../../lib/firebase");
 const { computeTripCostFromAssignment } = require("../../lib/trip-cost.service");
+const { assertCompanyMember } = require("../../lib/tenant-auth");
 
 function mapComputeError(e) {
   switch (e.code) {
@@ -30,6 +31,9 @@ const getResourcePerTripCost = onCall(
       throw new HttpsError("unauthenticated", "Debes iniciar sesión para consultar costos.");
     }
 
+    const companyId = String(request.data?.companyId ?? "").trim();
+    await assertCompanyMember(db, companyId, request.auth.uid);
+
     const tripAssignmentId = String(request.data?.tripAssignmentId ?? "").trim();
     if (!tripAssignmentId) {
       throw new HttpsError("invalid-argument", "tripAssignmentId es obligatorio.");
@@ -41,9 +45,12 @@ const getResourcePerTripCost = onCall(
     }
 
     const assignment = assignmentSnap.data() || {};
+    if (String(assignment.companyId ?? "") !== companyId) {
+      throw new HttpsError("permission-denied", "La asignación no pertenece a la empresa activa.");
+    }
 
     try {
-      const computed = await computeTripCostFromAssignment(assignment, db, { allowPartial: false });
+      const computed = await computeTripCostFromAssignment(assignment, db, { allowPartial: false, companyId });
       const entityType = String(assignment.entityType ?? "");
       const entityId = String(assignment.entityId ?? "").trim();
       const sourceId =
@@ -78,6 +85,9 @@ module.exports = {
         throw new HttpsError("unauthenticated", "Debes iniciar sesión para consultar costos.");
       }
 
+      const companyId = String(request.data?.companyId ?? "").trim();
+      await assertCompanyMember(db, companyId, request.auth.uid);
+
       const entityType = String(request.data?.entityType ?? "").trim();
       const entityId = String(request.data?.entityId ?? "").trim();
       if (!entityType || !entityId) {
@@ -91,7 +101,7 @@ module.exports = {
         const computed = await computeTripCostFromAssignment(
           { entityType, entityId },
           db,
-          { allowPartial: false }
+          { allowPartial: false, companyId }
         );
         const sourceId =
           computed.costType === "resource_payment" && computed.resourceCostId

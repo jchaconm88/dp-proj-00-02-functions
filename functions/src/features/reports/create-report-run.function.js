@@ -3,6 +3,7 @@ const { logger } = require("firebase-functions");
 const { FieldValue } = require("firebase-admin/firestore");
 const { db } = require("../../lib/firebase");
 const { NOTIFY_TEMPLATE_MAX_LEN } = require("../../lib/report-run-email.service");
+const { assertCompanyMember } = require("../../lib/tenant-auth");
 
 /**
  * @param {unknown} v
@@ -23,6 +24,9 @@ const createReportRun = onCall(
     if (!request.auth) {
       throw new HttpsError("unauthenticated", "Debes iniciar sesión para generar reportes.");
     }
+
+    const companyId = String(request.data?.companyId ?? "").trim();
+    await assertCompanyMember(db, companyId, request.auth.uid);
 
     const reportDefinitionId = String(request.data?.reportDefinitionId ?? "").trim();
     if (!reportDefinitionId) {
@@ -70,16 +74,22 @@ const createReportRun = onCall(
     if (!defSnap.exists) {
       throw new HttpsError("not-found", "La definición de reporte no existe.");
     }
+    const def = defSnap.data() || {};
+    if (String(def.companyId ?? "") !== companyId) {
+      throw new HttpsError("permission-denied", "La definición no pertenece a la empresa activa.");
+    }
 
     const email = request.auth.token?.email ? String(request.auth.token.email) : request.auth.uid;
 
     const ref = await db.collection("reportRuns").add({
+      companyId,
       reportDefinitionId,
       params,
       status: "pending",
       trigger: String(params.trigger ?? "manual"),
       outputFormat: params.outputFormat,
       requestedBy: email,
+      requestedByUid: request.auth.uid,
       createdAt: FieldValue.serverTimestamp(),
     });
 
