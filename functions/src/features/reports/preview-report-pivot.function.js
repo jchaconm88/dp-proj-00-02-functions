@@ -33,7 +33,7 @@ const previewReportPivot = onCall(
       throw new HttpsError("invalid-argument", "params.dateFrom y dateTo son obligatorios.");
     }
 
-    const defSnap = await db.collection("reportDefinitions").doc(reportDefinitionId).get();
+    const defSnap = await db.collection("report-definitions").doc(reportDefinitionId).get();
     if (!defSnap.exists) {
       throw new HttpsError("not-found", "La definición de reporte no existe.");
     }

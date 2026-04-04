@@ -4,6 +4,8 @@ const { FieldValue } = require("firebase-admin/firestore");
 const { db } = require("../../lib/firebase");
 const { NOTIFY_TEMPLATE_MAX_LEN } = require("../../lib/report-run-email.service");
 const { assertCompanyMember } = require("../../lib/tenant-auth");
+const { enforceIfSubscriptionExists, checkPlanLimit } = require("../../lib/tenant-account.service");
+const { recordMetric } = require("../../lib/usage-months.service");
 
 /**
  * @param {unknown} v
@@ -70,7 +72,7 @@ const createReportRun = onCall(
     if (bodyT) params.notifyEmailBodyHtml = bodyT;
     else delete params.notifyEmailBodyHtml;
 
-    const defSnap = await db.collection("reportDefinitions").doc(reportDefinitionId).get();
+    const defSnap = await db.collection("report-definitions").doc(reportDefinitionId).get();
     if (!defSnap.exists) {
       throw new HttpsError("not-found", "La definición de reporte no existe.");
     }
@@ -79,10 +81,16 @@ const createReportRun = onCall(
       throw new HttpsError("permission-denied", "La definición no pertenece a la empresa activa.");
     }
 
+    const compSnap = await db.collection("companies").doc(companyId).get();
+    const accountId = String(compSnap.data()?.accountId ?? companyId).trim() || companyId;
+    await enforceIfSubscriptionExists(db, accountId, "reports");
+    await checkPlanLimit(db, accountId, "reportRuns", 1);
+
     const email = request.auth.token?.email ? String(request.auth.token.email) : request.auth.uid;
 
-    const ref = await db.collection("reportRuns").add({
+    const ref = await db.collection("report-runs").add({
       companyId,
+      accountId,
       reportDefinitionId,
       params,
       status: "pending",
@@ -91,6 +99,11 @@ const createReportRun = onCall(
       requestedBy: email,
       requestedByUid: request.auth.uid,
       createdAt: FieldValue.serverTimestamp(),
+    });
+
+    await recordMetric(db, "reportRuns", {
+      accountId,
+      delta: 1,
     });
 
     const notifyCount = Array.isArray(params.notifyEmails) ? params.notifyEmails.length : 0;

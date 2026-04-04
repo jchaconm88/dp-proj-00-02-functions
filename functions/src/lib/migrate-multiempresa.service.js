@@ -5,7 +5,7 @@ const { FieldValue } = require("firebase-admin/firestore");
 const { admin, db } = require("./firebase");
 
 /**
- * UID canónico de Firebase Auth para `companyUsers` y reglas (isMember usa request.auth.uid).
+ * UID canónico de Firebase Auth para `company-users` y reglas (isMember usa request.auth.uid).
  * El ID del documento `users/{docId}` a veces es distinto al Auth UID (datos legacy).
  */
 async function resolveAuthUidForUserDoc(firestoreUserDocId, data) {
@@ -33,7 +33,7 @@ function userIsPlatformAdmin(data) {
   return role.includes("admin") || roleIds.includes("admin");
 }
 
-/** Roles para companyUsers: unión de `role` y `roleIds` del perfil. */
+/** Roles para company-users: unión de `role` y `roleIds` del perfil `users`. */
 function membershipRoleIdsFromUserDoc(data) {
   const d = data || {};
   const a = Array.isArray(d.roleIds) ? d.roleIds : [];
@@ -81,15 +81,26 @@ async function ensureCompany(companyId, name) {
   );
 }
 
+async function resolveAccountIdForCompany(companyId) {
+  const cid = String(companyId ?? "").trim();
+  if (!cid) return "";
+  const s = await db.collection("companies").doc(cid).get();
+  if (!s.exists) return cid;
+  const a = String(s.data()?.accountId ?? "").trim();
+  return a || cid;
+}
+
 async function upsertMembership(companyId, uid, roleIds) {
   const id = `${companyId}_${uid}`;
+  const accountId = await resolveAccountIdForCompany(companyId);
   await db
-    .collection("companyUsers")
+    .collection("company-users")
     .doc(id)
     .set(
       {
         companyId,
         uid,
+        accountId,
         status: "active",
         roleIds: Array.isArray(roleIds) ? roleIds : [],
         createAt: FieldValue.serverTimestamp(),
@@ -124,8 +135,8 @@ const DEFAULT_COLLECTIONS = [
   "resources",
   "drivers",
   "vehicles",
-  "routes",
-  "plans",
+  "trip-routes",
+  "trip-plans",
   "orders",
   "trips",
   "trip-assignments",
@@ -136,8 +147,8 @@ const DEFAULT_COLLECTIONS = [
   "transport-services",
   "document-types",
   "charge-types",
-  "reportDefinitions",
-  "reportRuns",
+  "report-definitions",
+  "report-runs",
 ];
 
 /**
@@ -166,7 +177,7 @@ async function runMigrateMultiempresa(data = {}, lookupEmail) {
       const wrongId = `${companyId}_${u.id}`;
       if (u.id !== authUid) {
         try {
-          await db.collection("companyUsers").doc(wrongId).delete();
+          await db.collection("company-users").doc(wrongId).delete();
         } catch (_) {
           /* no existía o ya borrado */
         }
@@ -195,7 +206,134 @@ async function runMigrateMultiempresa(data = {}, lookupEmail) {
   return { ok: true, companyId, results };
 }
 
+/**
+ * Añade `accountId` en docs de una colección a partir de `companies/{companyId}.accountId`.
+ */
+async function backfillAccountIdForCollection(collectionName, limitN) {
+  const snap = await db.collection(collectionName).limit(limitN).get();
+  let updated = 0;
+  let batch = db.batch();
+  let ops = 0;
+  for (const doc of snap.docs) {
+    const d = doc.data() || {};
+    if (d.accountId) continue;
+    const cid = String(d.companyId ?? "").trim();
+    if (!cid) continue;
+    // eslint-disable-next-line no-await-in-loop
+    const aid = await resolveAccountIdForCompany(cid);
+    if (!aid) continue;
+    batch.update(doc.ref, { accountId: aid });
+    updated++;
+    ops++;
+    if (ops >= 450) {
+      await batch.commit();
+      batch = db.batch();
+      ops = 0;
+    }
+  }
+  if (ops > 0) await batch.commit();
+  return { scanned: snap.size, updated };
+}
+
+async function runBackfillAccountIdAll(limitPerCollection) {
+  const results = {};
+  for (const col of DEFAULT_COLLECTIONS) {
+    // eslint-disable-next-line no-await-in-loop
+    results[col] = await backfillAccountIdForCollection(col, limitPerCollection);
+  }
+  results["company-users"] = await backfillAccountIdForCollection("company-users", limitPerCollection);
+  return results;
+}
+
+/**
+ * Fusiona `users.role` / `users.roleIds` en `company-users` para una empresa (idempotente; unión con roleIds existentes).
+ * Repetir con el mismo límite hasta que `merged` sea 0 si hay más de `limitUsers` perfiles.
+ *
+ * @param {string} companyId
+ * @param {number} limitUsers
+ * @returns {Promise<{ companyId: string; scanned: number; merged: number; skippedNoRoles: number }>}
+ */
+async function runMergeUserRolesToCompanyUsers(companyId, limitUsers = 500) {
+  const cid = String(companyId ?? "").trim();
+  if (!cid) {
+    const err = new Error("companyId es obligatorio");
+    err.code = "invalid-argument";
+    throw err;
+  }
+  const cap = Math.max(1, Math.min(500, limitUsers));
+  const usersSnap = await db.collection("users").limit(cap).get();
+  let merged = 0;
+  let skippedNoRoles = 0;
+  for (const u of usersSnap.docs) {
+    const d = u.data() || {};
+    const fromUser = membershipRoleIdsFromUserDoc(d);
+    if (fromUser.length === 0) {
+      skippedNoRoles++;
+      continue;
+    }
+    // eslint-disable-next-line no-await-in-loop
+    const authUid = await resolveAuthUidForUserDoc(u.id, d);
+    if (!authUid) continue;
+    const mid = `${cid}_${authUid}`;
+    // eslint-disable-next-line no-await-in-loop
+    const mSnap = await db.collection("company-users").doc(mid).get();
+    const existing =
+      mSnap.exists && Array.isArray(mSnap.data()?.roleIds) ? mSnap.data().roleIds : [];
+    const mergedIds = [...new Set([...existing, ...fromUser])];
+    const same =
+      mergedIds.length === existing.length && mergedIds.every((id) => existing.includes(id));
+    if (same) continue;
+    // eslint-disable-next-line no-await-in-loop
+    await upsertMembership(cid, authUid, mergedIds);
+    merged++;
+  }
+  return {
+    companyId: cid,
+    scanned: usersSnap.size,
+    merged,
+    skippedNoRoles,
+  };
+}
+
+/**
+ * Elimina `role` y `roleIds` en documentos `users` (solo tras migrar a company-users y refrescar claims).
+ * @param {number} limitN
+ */
+async function stripLegacyUserRoleFields(limitN = 200) {
+  const cap = Math.max(1, Math.min(500, limitN));
+  const snap = await db.collection("users").limit(cap).get();
+  let stripped = 0;
+  let batch = db.batch();
+  let ops = 0;
+  for (const doc of snap.docs) {
+    const d = doc.data() || {};
+    if (!d.role && !d.roleIds) continue;
+    batch.update(doc.ref, {
+      role: FieldValue.delete(),
+      roleIds: FieldValue.delete(),
+    });
+    stripped++;
+    ops++;
+    if (ops >= 450) {
+      // eslint-disable-next-line no-await-in-loop
+      await batch.commit();
+      batch = db.batch();
+      ops = 0;
+    }
+  }
+  if (ops > 0) await batch.commit();
+  return { scanned: snap.size, stripped };
+}
+
 module.exports = {
   runMigrateMultiempresa,
   assertPlatformAdmin,
+  resolveAccountIdForCompany,
+  backfillAccountIdForCollection,
+  runBackfillAccountIdAll,
+  runMergeUserRolesToCompanyUsers,
+  stripLegacyUserRoleFields,
+  userIsPlatformAdmin,
+  membershipRoleIdsFromUserDoc,
+  DEFAULT_COLLECTIONS,
 };

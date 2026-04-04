@@ -17,7 +17,7 @@ const getReportRunDownloadUrl = onCall(
       throw new HttpsError("invalid-argument", "reportRunId es obligatorio.");
     }
 
-    const snap = await db.collection("reportRuns").doc(reportRunId).get();
+    const snap = await db.collection("report-runs").doc(reportRunId).get();
     if (!snap.exists) {
       throw new HttpsError("not-found", "La ejecución del reporte no existe.");
     }

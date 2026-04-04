@@ -14,7 +14,7 @@ async function assertCanResolveUsersByEmail(uid) {
   const userSnap = await db.collection("users").doc(uid).get();
   if (userSnap.exists && userIsPlatformAdmin(userSnap.data())) return;
 
-  const q = await db.collection("companyUsers").where("uid", "==", uid).limit(50).get();
+  const q = await db.collection("company-users").where("uid", "==", uid).limit(50).get();
   for (const doc of q.docs) {
     const d = doc.data() || {};
     if (d.status === "inactive") continue;

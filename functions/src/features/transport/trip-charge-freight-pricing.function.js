@@ -70,7 +70,7 @@ const getTripChargeFreightPricing = onCall(
         const basePriceSource =
           entityType === "employee"
             ? "employees.payroll.baseSalary_per_workingDays"
-            : "resources.resourceCosts.per_trip";
+            : "resources.resource-costs.per_trip";
         return {
           amount: computed.amount,
           currency: computed.currency,

@@ -45,7 +45,7 @@ async function getTripCostFromAssignment(assignment, db, options = {}) {
     const costsSnap = await db
       .collection("resources")
       .doc(entityId)
-      .collection("resourceCosts")
+      .collection("resource-costs")
       .where("type", "==", "per_trip")
       .get();
 

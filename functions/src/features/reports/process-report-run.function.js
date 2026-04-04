@@ -19,10 +19,12 @@ const {
   smtpEnvDiagnostics,
   summarizeRecipientsForRun,
 } = require("../../lib/report-run-email.service");
+const { checkPlanLimit } = require("../../lib/tenant-account.service");
+const { recordMetric } = require("../../lib/usage-months.service");
 
 const processReportRun = onDocumentCreated(
   {
-    document: "reportRuns/{runId}",
+    document: "report-runs/{runId}",
     timeoutSeconds: 360,
     memory: "512MiB",
     secrets: [REPORT_SMTP_HOST, REPORT_SMTP_USER, REPORT_SMTP_PASS],
@@ -44,7 +46,7 @@ const processReportRun = onDocumentCreated(
       return;
     }
 
-    const runRef = db.collection("reportRuns").doc(runId);
+    const runRef = db.collection("report-runs").doc(runId);
     logger.info("processReportRun: inicio", { runId, reportDefinitionId: run.reportDefinitionId });
 
     try {
@@ -58,12 +60,16 @@ const processReportRun = onDocumentCreated(
         throw new Error("reportDefinitionId vacío.");
       }
 
-      const defSnap = await db.collection("reportDefinitions").doc(defId).get();
+      const defSnap = await db.collection("report-definitions").doc(defId).get();
       if (!defSnap.exists) {
         throw new Error("Definición de reporte no encontrada.");
       }
 
       const definition = defSnap.data() ?? {};
+      const companyId = String(run.companyId ?? definition.companyId ?? "").trim();
+      const accountId = String(run.accountId ?? "").trim()
+        || String((await db.collection("companies").doc(companyId).get()).data()?.accountId ?? companyId).trim()
+        || companyId;
       const params = {
         ...(typeof definition.defaultParams === "object" && definition.defaultParams
           ? definition.defaultParams
@@ -118,6 +124,11 @@ const processReportRun = onDocumentCreated(
           byteLength: buffer.length,
         },
         errorMessage: FieldValue.delete(),
+      });
+
+      await recordMetric(db, "storageBytesUsed", {
+        accountId,
+        delta: Number(buffer.length) || 0,
       });
 
       const notifyEnabled = params.notifyEnabled !== false;
@@ -215,6 +226,7 @@ const processReportRun = onDocumentCreated(
       } else {
         let signedUrlForNotify = "";
         try {
+          await checkPlanLimit(db, accountId, "emailsSent", recipients.length);
           logger.info("processReportRun: firmando URL y enviando correo", {
             runId,
             recipientCount: recipients.length,
@@ -238,6 +250,10 @@ const processReportRun = onDocumentCreated(
             notifyBodyWasHtml: Boolean(sendResult.bodyWasHtml),
             notifyError: FieldValue.delete(),
             notifySkippedReason: FieldValue.delete(),
+          });
+          await recordMetric(db, "emailsSent", {
+            accountId,
+            delta: recipients.length,
           });
           logger.info("processReportRun: correo notificado OK", { runId });
         } catch (notifyErr) {

@@ -15,6 +15,23 @@ const { getReportRunDownloadUrl } = require("./src/features/reports/get-report-r
 const { previewReportPivot } = require("./src/features/reports/preview-report-pivot.function");
 const { migrateMultiempresa } = require("./src/features/system/migrations/migrate-multiempresa.function");
 const { resolveAuthUidByEmail } = require("./src/features/auth/resolve-auth-uid.function");
+const { migrationHttp } = require("./src/features/system/migration-http.function");
+const { refreshTenantClaims } = require("./src/features/auth/refresh-tenant-claims.function");
+const { reconcileUsageMetrics } = require("./src/features/system/usage-metrics-reconcile.function");
+const { prepareDashboardSnapshot } = require("./src/features/system/prepare-dashboard-snapshot.function");
+const {
+  onTripsCreatedForDashboard,
+  onTripsDeletedForDashboard,
+  onReportRunsCreatedForDashboard,
+  onReportRunsDeletedForDashboard,
+  onSettlementsCreatedForDashboard,
+  onSettlementsDeletedForDashboard,
+  onClientsCreatedForDashboard,
+  onClientsDeletedForDashboard,
+  onUsageMonthsWrittenForDashboard,
+  onSubscriptionsWrittenForDashboard,
+  onPlansWrittenForDashboard,
+} = require("./src/features/system/dashboard-snapshot-sync.function");
 
 exports.authFunction = authFunction;
 exports.getResourcePerTripCost = getResourcePerTripCost;
@@ -31,3 +48,18 @@ exports.getReportRunDownloadUrl = getReportRunDownloadUrl;
 exports.previewReportPivot = previewReportPivot;
 exports.migrateMultiempresa = migrateMultiempresa;
 exports.resolveAuthUidByEmail = resolveAuthUidByEmail;
+exports.migrationHttp = migrationHttp;
+exports.refreshTenantClaims = refreshTenantClaims;
+exports.reconcileUsageMetrics = reconcileUsageMetrics;
+exports.prepareDashboardSnapshot = prepareDashboardSnapshot;
+exports.onTripsCreatedForDashboard = onTripsCreatedForDashboard;
+exports.onTripsDeletedForDashboard = onTripsDeletedForDashboard;
+exports.onReportRunsCreatedForDashboard = onReportRunsCreatedForDashboard;
+exports.onReportRunsDeletedForDashboard = onReportRunsDeletedForDashboard;
+exports.onSettlementsCreatedForDashboard = onSettlementsCreatedForDashboard;
+exports.onSettlementsDeletedForDashboard = onSettlementsDeletedForDashboard;
+exports.onClientsCreatedForDashboard = onClientsCreatedForDashboard;
+exports.onClientsDeletedForDashboard = onClientsDeletedForDashboard;
+exports.onUsageMonthsWrittenForDashboard = onUsageMonthsWrittenForDashboard;
+exports.onSubscriptionsWrittenForDashboard = onSubscriptionsWrittenForDashboard;
+exports.onPlansWrittenForDashboard = onPlansWrittenForDashboard;
