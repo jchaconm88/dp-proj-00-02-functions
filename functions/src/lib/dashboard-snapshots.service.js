@@ -1,6 +1,9 @@
 const { FieldValue } = require("firebase-admin/firestore");
-const { DASHBOARD_WIDGETS } = require("./dashboard-widgets.config");
 const { periodFromDate } = require("./usage-months.service");
+const {
+  loadDashboardConfig,
+  listEntityCountCollections,
+} = require("./dashboard-config.service");
 
 const SNAPSHOT_COLLECTION = "dashboard-snapshots";
 const TENANT_STATS_COLLECTION = "tenant-stats";
@@ -37,55 +40,58 @@ function progressLabel(used, cap, valueFormat) {
   return `${formatValue(used, valueFormat)} / ${formatValue(cap, valueFormat)}`;
 }
 
-function toCountFieldName(collectionName) {
-  if (collectionName === "report-runs") return "reportRuns";
-  if (collectionName === "settlements") return "settlements";
-  if (collectionName === "clients") return "clients";
-  return "trips";
+function normalizeCounts(raw = {}, metrics = []) {
+  const out = {};
+  for (const metric of metrics) {
+    const key = String(metric.metricKey ?? "").trim();
+    if (!key) continue;
+    out[key] = Math.max(0, toNumber(raw[key]));
+  }
+  return out;
 }
 
-function normalizeCounts(raw = {}) {
-  return {
-    trips: Math.max(0, toNumber(raw.trips)),
-    reportRuns: Math.max(0, toNumber(raw.reportRuns)),
-    settlements: Math.max(0, toNumber(raw.settlements)),
-    clients: Math.max(0, toNumber(raw.clients)),
-  };
+async function loadEntityCountMetrics(db) {
+  const conf = await loadDashboardConfig(db);
+  return conf.metrics.filter((m) => m.type === "entityCount" && m.active);
 }
 
 async function adjustTenantCount(db, { collectionName, accountId, companyId, delta }) {
   const aid = String(accountId ?? "").trim();
   const col = String(collectionName ?? "").trim();
-  if (!aid || !TRACKED_COLLECTIONS.includes(col)) return null;
+  if (!aid || !col) return null;
   const deltaNum = Number(delta) || 0;
   if (deltaNum === 0) return null;
-  const field = toCountFieldName(col);
+  const metrics = await loadEntityCountMetrics(db);
+  const affected = metrics.filter((m) => String(m.source?.collectionName ?? "").trim() === col);
+  if (affected.length === 0) return null;
   const ref = db.collection(TENANT_STATS_COLLECTION).doc(aid);
+  const countIncrements = {};
+  for (const metric of affected) {
+    countIncrements[metric.metricKey] = FieldValue.increment(deltaNum);
+  }
   await ref.set(
     {
       accountId: aid,
       companyId: String(companyId ?? "").trim() || null,
-      counts: {
-        [field]: FieldValue.increment(deltaNum),
-      },
+      counts: countIncrements,
       updatedAt: FieldValue.serverTimestamp(),
     },
     { merge: true }
   );
-  return { accountId: aid, field, delta: deltaNum };
+  return { accountId: aid, metricKeys: affected.map((m) => m.metricKey), delta: deltaNum };
 }
 
 async function recomputeTenantCounts(db, { accountId, companyId }) {
   const aid = String(accountId ?? "").trim();
   if (!aid) return null;
-  const out = { trips: 0, reportRuns: 0, settlements: 0, clients: 0 };
-  for (const col of TRACKED_COLLECTIONS) {
+  const metrics = await loadEntityCountMetrics(db);
+  const out = {};
+  for (const metric of metrics) {
+    const col = String(metric.source?.collectionName ?? "").trim();
+    if (!col) continue;
     // eslint-disable-next-line no-await-in-loop
     const snap = await db.collection(col).where("accountId", "==", aid).get();
-    if (col === "report-runs") out.reportRuns = snap.size;
-    if (col === "settlements") out.settlements = snap.size;
-    if (col === "clients") out.clients = snap.size;
-    if (col === "trips") out.trips = snap.size;
+    out[metric.metricKey] = snap.size;
   }
   await db.collection(TENANT_STATS_COLLECTION).doc(aid).set(
     {
@@ -114,32 +120,31 @@ async function loadPlanLimits(db, accountId) {
 
 function usageCardFromWidget(widget, usageRaw, planLimits) {
   const used = toNumber(usageRaw[widget.metricKey || ""]);
-  const capRaw = widget.limitKey ? planLimits[widget.limitKey] : null;
+  const capRaw = widget.planLimitKey ? planLimits[widget.planLimitKey] : null;
   const cap = Number.isFinite(Number(capRaw)) ? Number(capRaw) : null;
   const pct = cap && cap > 0 ? Math.max(0, Math.min(100, Math.round((used / cap) * 100))) : null;
   return {
-    id: widget.id,
+    id: widget.cardKey || widget.id,
     title: widget.title,
     subtitle: widget.subtitle,
     icon: widget.icon,
     accentClass: widget.accentClass,
-    value: formatValue(used, widget.valueFormat),
+    value: formatValue(used, widget.valueFormat || "number"),
     progressPct: pct,
-    progressLabel: progressLabel(used, cap, widget.valueFormat),
+    progressLabel: progressLabel(used, cap, widget.valueFormat || "number"),
     href: widget.href,
   };
 }
 
-function collectionCardFromWidget(widget, counts) {
-  const field = toCountFieldName(widget.collectionName || "");
-  const value = Math.max(0, toNumber(counts[field]));
+function collectionCardFromWidget(widget, counts, metric) {
+  const value = Math.max(0, toNumber(counts[metric.metricKey]));
   return {
-    id: widget.id,
+    id: widget.cardKey || widget.id,
     title: widget.title,
     subtitle: widget.subtitle,
     icon: widget.icon,
     accentClass: widget.accentClass,
-    value: formatValue(value, widget.valueFormat),
+    value: formatValue(value, widget.valueFormat || "number"),
     progressPct: null,
     progressLabel: "Total tenant",
     href: widget.href,
@@ -187,18 +192,30 @@ async function composeDashboardSnapshot(db, { accountId, companyId, period }) {
   if (!aid) return null;
   const p = String(period ?? "").trim() || periodFromDate(new Date());
   const usageId = snapshotId(aid, p);
-  const [usageSnap, statsSnap, limits, activity] = await Promise.all([
+  const [usageSnap, statsSnap, limits, activity, dashboardConfig] = await Promise.all([
     db.collection("usage-months").doc(usageId).get(),
     db.collection(TENANT_STATS_COLLECTION).doc(aid).get(),
     loadPlanLimits(db, aid),
     loadActivity(db, aid, String(companyId ?? "").trim()),
+    loadDashboardConfig(db),
   ]);
   const usageRaw = usageSnap.exists ? usageSnap.data() || {} : {};
-  const counts = normalizeCounts(statsSnap.exists ? (statsSnap.data() || {}).counts : {});
-  const cards = DASHBOARD_WIDGETS.map((widget) => {
-    if (widget.kind === "usage") return usageCardFromWidget(widget, usageRaw, limits);
-    return collectionCardFromWidget(widget, counts);
-  });
+  const metricsByKey = new Map(dashboardConfig.metrics.map((m) => [m.metricKey, m]));
+  const counts = normalizeCounts(statsSnap.exists ? (statsSnap.data() || {}).counts : {}, dashboardConfig.metrics);
+  const cards = dashboardConfig.cards
+    .map((card) => {
+      const metric = metricsByKey.get(card.metricKey);
+      if (!metric) return null;
+      const enriched = {
+        ...card,
+        metricKey: metric.metricKey,
+        planLimitKey: metric.planLimitKey,
+        valueFormat: card.valueFormat || metric.valueFormat || "number",
+      };
+      if (metric.type === "entityCount") return collectionCardFromWidget(enriched, counts, metric);
+      return usageCardFromWidget(enriched, usageRaw, limits);
+    })
+    .filter(Boolean);
   const doc = {
     accountId: aid,
     companyId: String(companyId ?? "").trim() || null,
@@ -208,6 +225,7 @@ async function composeDashboardSnapshot(db, { accountId, companyId, period }) {
     cards,
     activityReports: activity.activityReports,
     activityTrips: activity.activityTrips,
+    configSource: dashboardConfig.source,
     updatedAt: FieldValue.serverTimestamp(),
   };
   await db.collection(SNAPSHOT_COLLECTION).doc(snapshotId(aid, p)).set(doc, { merge: true });
@@ -222,4 +240,5 @@ module.exports = {
   adjustTenantCount,
   recomputeTenantCounts,
   composeDashboardSnapshot,
+  listEntityCountCollections,
 };

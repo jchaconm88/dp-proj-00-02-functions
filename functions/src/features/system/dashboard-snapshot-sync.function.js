@@ -5,6 +5,7 @@ const { periodFromDate } = require("../../lib/usage-months.service");
 const {
   adjustTenantCount,
   composeDashboardSnapshot,
+  listEntityCountCollections,
 } = require("../../lib/dashboard-snapshots.service");
 
 async function resolveTenantFromDocData(data = {}) {
@@ -18,6 +19,8 @@ async function resolveTenantFromDocData(data = {}) {
 }
 
 async function applyDeltaAndRefreshSnapshot(collectionName, docData, delta) {
+  const trackedCollections = await listEntityCountCollections(db);
+  if (!trackedCollections.includes(collectionName)) return;
   const { accountId, companyId } = await resolveTenantFromDocData(docData);
   if (!accountId) return;
   await adjustTenantCount(db, {
@@ -33,32 +36,23 @@ async function applyDeltaAndRefreshSnapshot(collectionName, docData, delta) {
   });
 }
 
-function createdTriggerForCollection(collectionName) {
-  return onDocumentCreated(`${collectionName}/{docId}`, async (event) => {
-    const snap = event.data;
-    if (!snap) return;
-    const data = snap.data() || {};
-    await applyDeltaAndRefreshSnapshot(collectionName, data, 1);
-  });
-}
+const onAnyRootDocCreatedForDashboard = onDocumentCreated("{collectionName}/{docId}", async (event) => {
+  const snap = event.data;
+  if (!snap) return;
+  const data = snap.data() || {};
+  const collectionName = String(event.params.collectionName ?? "").trim();
+  if (!collectionName) return;
+  await applyDeltaAndRefreshSnapshot(collectionName, data, 1);
+});
 
-function deletedTriggerForCollection(collectionName) {
-  return onDocumentDeleted(`${collectionName}/{docId}`, async (event) => {
-    const snap = event.data;
-    if (!snap) return;
-    const data = snap.data() || {};
-    await applyDeltaAndRefreshSnapshot(collectionName, data, -1);
-  });
-}
-
-const onTripsCreatedForDashboard = createdTriggerForCollection("trips");
-const onTripsDeletedForDashboard = deletedTriggerForCollection("trips");
-const onReportRunsCreatedForDashboard = createdTriggerForCollection("report-runs");
-const onReportRunsDeletedForDashboard = deletedTriggerForCollection("report-runs");
-const onSettlementsCreatedForDashboard = createdTriggerForCollection("settlements");
-const onSettlementsDeletedForDashboard = deletedTriggerForCollection("settlements");
-const onClientsCreatedForDashboard = createdTriggerForCollection("clients");
-const onClientsDeletedForDashboard = deletedTriggerForCollection("clients");
+const onAnyRootDocDeletedForDashboard = onDocumentDeleted("{collectionName}/{docId}", async (event) => {
+  const snap = event.data;
+  if (!snap) return;
+  const data = snap.data() || {};
+  const collectionName = String(event.params.collectionName ?? "").trim();
+  if (!collectionName) return;
+  await applyDeltaAndRefreshSnapshot(collectionName, data, -1);
+});
 
 const onUsageMonthsWrittenForDashboard = onDocumentWritten(
   "usage-months/{usageId}",
@@ -139,14 +133,8 @@ const onPlansWrittenForDashboard = onDocumentWritten("plans/{planId}", async (ev
 });
 
 module.exports = {
-  onTripsCreatedForDashboard,
-  onTripsDeletedForDashboard,
-  onReportRunsCreatedForDashboard,
-  onReportRunsDeletedForDashboard,
-  onSettlementsCreatedForDashboard,
-  onSettlementsDeletedForDashboard,
-  onClientsCreatedForDashboard,
-  onClientsDeletedForDashboard,
+  onAnyRootDocCreatedForDashboard,
+  onAnyRootDocDeletedForDashboard,
   onUsageMonthsWrittenForDashboard,
   onSubscriptionsWrittenForDashboard,
   onPlansWrittenForDashboard,

@@ -20,14 +20,8 @@ const { refreshTenantClaims } = require("./src/features/auth/refresh-tenant-clai
 const { reconcileUsageMetrics } = require("./src/features/system/usage-metrics-reconcile.function");
 const { prepareDashboardSnapshot } = require("./src/features/system/prepare-dashboard-snapshot.function");
 const {
-  onTripsCreatedForDashboard,
-  onTripsDeletedForDashboard,
-  onReportRunsCreatedForDashboard,
-  onReportRunsDeletedForDashboard,
-  onSettlementsCreatedForDashboard,
-  onSettlementsDeletedForDashboard,
-  onClientsCreatedForDashboard,
-  onClientsDeletedForDashboard,
+  onAnyRootDocCreatedForDashboard,
+  onAnyRootDocDeletedForDashboard,
   onUsageMonthsWrittenForDashboard,
   onSubscriptionsWrittenForDashboard,
   onPlansWrittenForDashboard,
@@ -52,14 +46,8 @@ exports.migrationHttp = migrationHttp;
 exports.refreshTenantClaims = refreshTenantClaims;
 exports.reconcileUsageMetrics = reconcileUsageMetrics;
 exports.prepareDashboardSnapshot = prepareDashboardSnapshot;
-exports.onTripsCreatedForDashboard = onTripsCreatedForDashboard;
-exports.onTripsDeletedForDashboard = onTripsDeletedForDashboard;
-exports.onReportRunsCreatedForDashboard = onReportRunsCreatedForDashboard;
-exports.onReportRunsDeletedForDashboard = onReportRunsDeletedForDashboard;
-exports.onSettlementsCreatedForDashboard = onSettlementsCreatedForDashboard;
-exports.onSettlementsDeletedForDashboard = onSettlementsDeletedForDashboard;
-exports.onClientsCreatedForDashboard = onClientsCreatedForDashboard;
-exports.onClientsDeletedForDashboard = onClientsDeletedForDashboard;
+exports.onAnyRootDocCreatedForDashboard = onAnyRootDocCreatedForDashboard;
+exports.onAnyRootDocDeletedForDashboard = onAnyRootDocDeletedForDashboard;
 exports.onUsageMonthsWrittenForDashboard = onUsageMonthsWrittenForDashboard;
 exports.onSubscriptionsWrittenForDashboard = onSubscriptionsWrittenForDashboard;
 exports.onPlansWrittenForDashboard = onPlansWrittenForDashboard;

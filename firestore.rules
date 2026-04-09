@@ -102,6 +102,17 @@ service cloud.firestore {
       allow write: if isPlatformAdmin();
     }
 
+    /** Configuración dinámica del dashboard (métricas/tarjetas). */
+    match /metric-definitions/{metricId} {
+      allow read: if isSignedIn();
+      allow write: if isPlatformAdmin();
+    }
+
+    match /dashboard-card-definitions/{cardId} {
+      allow read: if isSignedIn();
+      allow write: if isPlatformAdmin();
+    }
+
     match /usage-months/{usageId} {
       allow read: if isSignedIn() && (isPlatformAdmin() || !('accountId' in resource.data) || !('accountId' in request.auth.token) || request.auth.token.accountId == null || resource.data.accountId == request.auth.token.accountId);
       allow write: if isPlatformAdmin();

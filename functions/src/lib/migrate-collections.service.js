@@ -8,6 +8,11 @@ const {
   runMergeUserRolesToCompanyUsers,
   stripLegacyUserRoleFields,
 } = require("./migrate-multiempresa.service");
+const {
+  METRIC_DEFINITIONS_COLLECTION,
+  DASHBOARD_CARD_DEFINITIONS_COLLECTION,
+  legacyDefaults,
+} = require("./dashboard-config.service");
 
 /**
  * @param {string} from
@@ -196,6 +201,75 @@ async function seedDefaultSaasPlanAndSubscriptions(limitAccounts = 200) {
   return { planSeeded: !pSnap.exists, subscriptionsUpserted, accountsScanned: accSnap.size };
 }
 
+async function seedDynamicDashboardConfig() {
+  const defaults = legacyDefaults();
+  let seededMetrics = 0;
+  let seededCards = 0;
+
+  for (const metric of defaults.metrics) {
+    const key = String(metric.metricKey ?? "").trim();
+    if (!key) continue;
+    const ref = db.collection(METRIC_DEFINITIONS_COLLECTION).doc(key);
+    // eslint-disable-next-line no-await-in-loop
+    const snap = await ref.get();
+    if (snap.exists) continue;
+    // eslint-disable-next-line no-await-in-loop
+    await ref.set(
+      {
+        metricKey: key,
+        label: metric.label,
+        description: metric.description,
+        type: metric.type,
+        measureType: metric.measureType,
+        enforcement: metric.enforcement,
+        planLimitKey: metric.planLimitKey || null,
+        source: metric.source || {},
+        valueFormat: metric.valueFormat || "number",
+        active: metric.active !== false,
+        schemaVersion: 1,
+        createAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    seededMetrics += 1;
+  }
+
+  for (const card of defaults.cards) {
+    const key = String(card.cardKey ?? card.id ?? "").trim();
+    if (!key) continue;
+    const ref = db.collection(DASHBOARD_CARD_DEFINITIONS_COLLECTION).doc(key);
+    // eslint-disable-next-line no-await-in-loop
+    const snap = await ref.get();
+    if (snap.exists) continue;
+    // eslint-disable-next-line no-await-in-loop
+    await ref.set(
+      {
+        cardKey: key,
+        metricKey: card.metricKey,
+        title: card.title,
+        subtitle: card.subtitle,
+        icon: card.icon,
+        accentClass: card.accentClass,
+        href: card.href || null,
+        order: Number(card.order) || 0,
+        visible: card.visible !== false,
+        active: card.active !== false,
+        valueFormat: card.valueFormat || "number",
+        schemaVersion: 1,
+        createAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    seededCards += 1;
+  }
+  return {
+    metricCollection: METRIC_DEFINITIONS_COLLECTION,
+    cardCollection: DASHBOARD_CARD_DEFINITIONS_COLLECTION,
+    seededMetrics,
+    seededCards,
+  };
+}
+
 /**
  * @param {string} op
  * @param {Record<string, unknown>} data
@@ -219,6 +293,8 @@ async function runMigrationOp(op, data = {}) {
       return bootstrapAccountsFromCompanies(limit);
     case "seed-saas-defaults":
       return seedDefaultSaasPlanAndSubscriptions(limit);
+    case "seed-dashboard-dynamic-config":
+      return seedDynamicDashboardConfig();
     case "backfill-account-ids": {
       const per = Math.max(1, Math.min(500, Number(data.limitPerCollection) || 200));
       return runBackfillAccountIdAll(per);
@@ -246,4 +322,5 @@ module.exports = {
   copyResourceCostsSubcollections,
   bootstrapAccountsFromCompanies,
   seedDefaultSaasPlanAndSubscriptions,
+  seedDynamicDashboardConfig,
 };

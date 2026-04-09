@@ -1,5 +1,5 @@
 const { HttpsError } = require("firebase-functions/v2/https");
-const { getMetricConfig } = require("./plan-metrics.config");
+const { getMetricConfigDynamic } = require("./plan-metrics.config");
 
 const ACTIVE_SUB_STATUSES = new Set(["active", "trial"]);
 
@@ -53,7 +53,7 @@ async function checkFeature(db, accountId, featureKey) {
  */
 async function checkPlanLimit(db, accountId, metricKey, incrementBy = 0) {
   await assertAccountSubscriptionActive(db, accountId);
-  const conf = getMetricConfig(metricKey);
+  const conf = await getMetricConfigDynamic(db, metricKey);
   if (!conf) return { ok: true, cap: null, used: null, metricKey, skipped: "metric-not-registered" };
   if (conf.enforcement !== "hard") {
     return { ok: true, cap: null, used: null, metricKey, skipped: "soft-enforcement" };

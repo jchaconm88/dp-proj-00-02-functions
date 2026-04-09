@@ -88,8 +88,8 @@ async function aggregateTripsCreatedForPeriod(accountId, period) {
 
 function usageHasMetricPayload(data) {
   if (!data || typeof data !== "object") return false;
-  const metrics = ["reportRuns", "emailsSent", "storageBytesUsed", "tripsCreated", "storageBytesCurrent"];
-  return metrics.some((k) => Number.isFinite(Number(data[k])));
+  const ignoredKeys = new Set(["accountId", "period", "createdAt", "updatedAt", "backfilledAt", "companyId"]);
+  return Object.entries(data).some(([key, value]) => !ignoredKeys.has(key) && Number.isFinite(Number(value)));
 }
 
 async function ensureUsageMonthBackfilled(accountId, period) {

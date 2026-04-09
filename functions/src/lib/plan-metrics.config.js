@@ -53,8 +53,28 @@ function getMetricConfig(metricKey) {
   return METRIC_REGISTRY[key] || null;
 }
 
+async function getMetricConfigDynamic(db, metricKey) {
+  const key = String(metricKey ?? "").trim();
+  if (!key) return null;
+  try {
+    const { loadMetricDefinitionByKey } = require("./dashboard-config.service");
+    const dynamic = await loadMetricDefinitionByKey(db, key);
+    if (!dynamic) return getMetricConfig(key);
+    return {
+      metricKey: dynamic.metricKey,
+      limitKey: String(dynamic.planLimitKey ?? "").trim() || undefined,
+      measureType: dynamic.measureType,
+      enforcement: dynamic.enforcement,
+      source: dynamic.type,
+    };
+  } catch {
+    return getMetricConfig(key);
+  }
+}
+
 module.exports = {
   METRIC_REGISTRY,
   getMetricConfig,
+  getMetricConfigDynamic,
 };
 

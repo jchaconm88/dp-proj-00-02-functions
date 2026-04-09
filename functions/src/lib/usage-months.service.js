@@ -1,5 +1,5 @@
 const { FieldValue } = require("firebase-admin/firestore");
-const { getMetricConfig } = require("./plan-metrics.config");
+const { getMetricConfigDynamic } = require("./plan-metrics.config");
 
 function periodFromDate(date = new Date()) {
   const d = date instanceof Date ? date : new Date();
@@ -68,7 +68,7 @@ async function setUsageGauge(db, { accountId, metricKey, value, period }) {
 }
 
 async function recordMetric(db, metricKey, payload = {}) {
-  const conf = getMetricConfig(metricKey);
+  const conf = await getMetricConfigDynamic(db, metricKey);
   if (!conf) {
     throw new Error(`Métrica no registrada: ${metricKey}`);
   }
