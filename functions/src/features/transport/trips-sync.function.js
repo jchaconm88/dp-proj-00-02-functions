@@ -121,8 +121,9 @@ async function cascadeDeleteTripRelatedData(firestore, tripId) {
   });
 }
 
-async function resolveFreightChargeCode(tripId) {
+async function resolveFreightChargeCode(tripId, companyId) {
   const tid = String(tripId ?? "").trim();
+  const compId = String(companyId ?? "").trim();
   const ref = canonicalTripFreightChargeDocRef(db, tid);
   const snap = await ref.get();
   if (snap.exists) {
@@ -130,23 +131,30 @@ async function resolveFreightChargeCode(tripId) {
     if (c) return c;
   }
   try {
-    return String(await resolveDraftCodeWithGenerator(db, "", TRIP_CHARGE_SEQUENCE_ENTITY)).trim();
+    return String(
+      await resolveDraftCodeWithGenerator(db, "", TRIP_CHARGE_SEQUENCE_ENTITY, { companyId: compId })
+    ).trim();
   } catch (err) {
     logger.warn("onTripsWrite: no se pudo generar código trip-charge", {
       tripId,
+      companyId: compId,
       message: err instanceof Error ? err.message : String(err),
     });
-    return `${tripId}-freight`;
+    return "";
   }
 }
 
-async function resolveFreightChargeType() {
+async function resolveFreightChargeType(companyId, accountId) {
+  const compId = String(companyId ?? "").trim();
+  const accId = String(accountId ?? "").trim();
   try {
-    const snap = await db
+    let q = db
       .collection("charge-types")
       .where("type", "==", "charge")
-      .where("source", "==", "service")
-      .get();
+      .where("source", "==", "service");
+    if (compId) q = q.where("companyId", "==", compId);
+    if (accId) q = q.where("accountId", "==", accId);
+    const snap = await q.get();
     if (snap.empty) return { id: "", name: "" };
 
     const list = snap.docs
@@ -224,29 +232,50 @@ async function syncFreightTripChargeFromTrip(trip, tripId) {
   const tid = String(tripId ?? "").trim();
   const clientId = String(trip.clientId ?? "").trim();
   const transportServiceId = String(trip.transportServiceId ?? "").trim();
+  const companyId = String(trip.companyId ?? "").trim();
+  const accountId = String(trip.accountId ?? "").trim();
 
-  if (!clientId || !transportServiceId) {
-    await deleteSyncedTripCharge(tid, "trip_sin_cliente_o_servicio");
+  // Sin servicio no hay entidad mínima para el cargo flete sincronizado.
+  if (!transportServiceId) {
+    await deleteSyncedTripCharge(tid, "trip_sin_servicio");
     return;
   }
 
-  const pricing = await computeFreightPricingFromContract(db, { clientId, transportServiceId });
-
-  if (!pricing.ok) {
-    logger.warn("onTripsWrite: no se pudo calcular flete automático", {
-      tripId: tid,
-      reason: pricing.reason,
+  let pricing = null;
+  if (clientId) {
+    pricing = await computeFreightPricingFromContract(db, {
       clientId,
       transportServiceId,
+      companyId,
+      accountId,
     });
-    await deleteSyncedTripCharge(tid, `pricing_${pricing.reason}`);
-    return;
+    if (!pricing.ok) {
+      logger.warn("onTripsWrite: no se pudo calcular flete automático; se aplicará fallback", {
+        tripId: tid,
+        reason: pricing.reason,
+        clientId,
+        transportServiceId,
+      });
+    }
+  } else {
+    logger.warn("onTripsWrite: viaje sin cliente; se aplicará flete fallback", {
+      tripId: tid,
+      transportServiceId,
+    });
   }
 
-  const code = await resolveFreightChargeCode(tid);
-  const freightChargeType = await resolveFreightChargeType();
+  const code = await resolveFreightChargeCode(tid, companyId);
+  if (!code) {
+    logger.error("onTripsWrite: omitido cargo flete, no se pudo resolver correlativo", {
+      tripId: tid,
+      companyId,
+      entity: TRIP_CHARGE_SEQUENCE_ENTITY,
+    });
+    return;
+  }
+  const freightChargeType = await resolveFreightChargeType(companyId, accountId);
   const name =
-    pricing.serviceName ||
+    (pricing && pricing.ok ? pricing.serviceName : "") ||
     String(trip.transportService ?? "").trim() ||
     "Flete";
 
@@ -258,16 +287,18 @@ async function syncFreightTripChargeFromTrip(trip, tripId) {
   };
 
   const bodyCore = {
+    companyId,
+    accountId,
     code,
     tripId: tid,
     name,
     chargeTypeId: freightChargeType.id,
     chargeType: freightChargeType.name,
-    source: "contract",
+    source: pricing && pricing.ok ? "contract" : "manual",
     entityType: "transportService",
     entityId: transportServiceId,
-    amount: pricing.amount,
-    currency: pricing.currency,
+    amount: pricing && pricing.ok ? pricing.amount : 0,
+    currency: pricing && pricing.ok ? pricing.currency : "PEN",
     status: "open",
     settlementId: null,
     sync: syncBlock,
@@ -298,7 +329,11 @@ async function syncFreightTripChargeFromTrip(trip, tripId) {
       });
     });
 
-    logger.info("onTripsWrite: cargo flete sincronizado", { tripId: tid, ruleId: pricing.ruleId });
+    logger.info("onTripsWrite: cargo flete sincronizado", {
+      tripId: tid,
+      pricingMode: pricing && pricing.ok ? "contract" : "fallback",
+      ruleId: pricing && pricing.ok ? pricing.ruleId : null,
+    });
   } catch (err) {
     logger.error("onTripsWrite: error en transacción de cargo flete", {
       tripId: tid,

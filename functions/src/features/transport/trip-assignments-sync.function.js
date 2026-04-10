@@ -17,8 +17,9 @@ const TRIP_COST_SEQUENCE_ENTITY = "trip-cost";
 const TRIP_CHARGE_SEQUENCE_ENTITY = "trip-charge";
 const SYSTEM_AUDIT = "system:trip-assignment-sync";
 
-async function resolveTripCostCode(assignmentId) {
+async function resolveTripCostCode(assignmentId, companyId) {
   const aid = String(assignmentId ?? "").trim();
+  const compId = String(companyId ?? "").trim();
   const ref = canonicalAssignmentCostDocRef(db, aid);
   const snap = await ref.get();
   if (snap.exists) {
@@ -26,18 +27,22 @@ async function resolveTripCostCode(assignmentId) {
     if (c) return c;
   }
   try {
-    return String(await resolveDraftCodeWithGenerator(db, "", TRIP_COST_SEQUENCE_ENTITY)).trim();
+    return String(
+      await resolveDraftCodeWithGenerator(db, "", TRIP_COST_SEQUENCE_ENTITY, { companyId: compId })
+    ).trim();
   } catch (err) {
     logger.warn("onTripAssignmentsWrite: no se pudo generar código trip-cost", {
       assignmentId,
+      companyId: compId,
       message: err instanceof Error ? err.message : String(err),
     });
-    return assignmentId;
+    return "";
   }
 }
 
-async function resolveTripChargeCode(assignmentId) {
+async function resolveTripChargeCode(assignmentId, companyId) {
   const aid = String(assignmentId ?? "").trim();
+  const compId = String(companyId ?? "").trim();
   const ref = canonicalAssignmentChargeDocRef(db, aid);
   const snap = await ref.get();
   if (snap.exists) {
@@ -45,13 +50,16 @@ async function resolveTripChargeCode(assignmentId) {
     if (c) return c;
   }
   try {
-    return String(await resolveDraftCodeWithGenerator(db, "", TRIP_CHARGE_SEQUENCE_ENTITY)).trim();
+    return String(
+      await resolveDraftCodeWithGenerator(db, "", TRIP_CHARGE_SEQUENCE_ENTITY, { companyId: compId })
+    ).trim();
   } catch (err) {
     logger.warn("onTripAssignmentsWrite: no se pudo generar código trip-charge", {
       assignmentId,
+      companyId: compId,
       message: err instanceof Error ? err.message : String(err),
     });
-    return assignmentId;
+    return "";
   }
 }
 
@@ -185,6 +193,8 @@ async function handleAssignmentUpsertCost(event) {
     return;
   }
   const tripId = String(data.tripId ?? "").trim();
+  const companyId = String(data.companyId ?? "").trim();
+  const accountId = String(data.accountId ?? "").trim();
   const assignmentDisplayName = String(data.displayName ?? "").trim();
   const mappedEntity = String(data.entityType ?? "").trim().toLowerCase() === "resource" ? "resource" : "employee";
   const mappedEntityId = String(data.entityId ?? "").trim();
@@ -200,7 +210,15 @@ async function handleAssignmentUpsertCost(event) {
     return;
   }
 
-  const tripCostCode = await resolveTripCostCode(assignmentId);
+  const tripCostCode = await resolveTripCostCode(assignmentId, companyId);
+  if (!tripCostCode) {
+    logger.error("onTripAssignmentsWrite: omitido trip-cost, no se pudo resolver correlativo", {
+      assignmentId,
+      companyId,
+      entity: TRIP_COST_SEQUENCE_ENTITY,
+    });
+    return;
+  }
 
   let computed;
   try {
@@ -222,6 +240,8 @@ async function handleAssignmentUpsertCost(event) {
   const syncBlock = buildSyncBlock(PROCESS.TRIP_ASSIGNMENT_COST, "assignment", assignmentId);
 
   const baseMeta = {
+    companyId,
+    accountId,
     tripId,
     code: tripCostCode,
     displayName: assignmentDisplayName,
@@ -321,6 +341,8 @@ async function handleAssignmentUpsertCharge(event) {
   }
 
   const tripId = String(data.tripId ?? "").trim();
+  const companyId = String(data.companyId ?? "").trim();
+  const accountId = String(data.accountId ?? "").trim();
   if (!tripId) {
     logger.warn("onTripAssignmentsWrite: omitido charge, sin tripId", { assignmentId });
     return;
@@ -343,10 +365,20 @@ async function handleAssignmentUpsertCharge(event) {
     computed = { amount: 0, currency: "PEN" };
   }
 
-  const tripChargeCode = await resolveTripChargeCode(assignmentId);
+  const tripChargeCode = await resolveTripChargeCode(assignmentId, companyId);
+  if (!tripChargeCode) {
+    logger.error("onTripAssignmentsWrite: omitido trip-charge, no se pudo resolver correlativo", {
+      assignmentId,
+      companyId,
+      entity: TRIP_CHARGE_SEQUENCE_ENTITY,
+    });
+    return;
+  }
   const syncBlock = buildSyncBlock(PROCESS.TRIP_ASSIGNMENT_CHARGE, "assignment", assignmentId);
 
   const baseMeta = {
+    companyId,
+    accountId,
     tripId,
     code: tripChargeCode,
     name: displayName || chargeType || assignmentId,

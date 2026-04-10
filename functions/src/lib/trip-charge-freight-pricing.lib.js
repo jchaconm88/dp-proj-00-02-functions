@@ -26,20 +26,25 @@ function pickRateRuleForService(docs, transportServiceId) {
 
 /**
  * @param {FirebaseFirestore.Firestore} db
- * @param {{ clientId: string, transportServiceId: string }} params
+ * @param {{ clientId: string, transportServiceId: string, companyId?: string, accountId?: string }} params
  * @returns {Promise<
  *   | { ok: true, amount: number, currency: string, serviceName: string, contractId: string, ruleId: string }
  *   | { ok: false, reason: "missing_params" | "no_contract" | "no_rule" }
  * >}
  */
-async function computeFreightPricingFromContract(db, { clientId, transportServiceId }) {
+async function computeFreightPricingFromContract(db, { clientId, transportServiceId, companyId, accountId }) {
   const cid = String(clientId ?? "").trim();
   const sid = String(transportServiceId ?? "").trim();
+  const compId = String(companyId ?? "").trim();
+  const accId = String(accountId ?? "").trim();
   if (!cid || !sid) {
     return { ok: false, reason: "missing_params" };
   }
 
-  const contractsSnap = await db.collection(CONTRACTS).where("clientId", "==", cid).get();
+  let contractsQuery = db.collection(CONTRACTS).where("clientId", "==", cid);
+  if (compId) contractsQuery = contractsQuery.where("companyId", "==", compId);
+  if (accId) contractsQuery = contractsQuery.where("accountId", "==", accId);
+  const contractsSnap = await contractsQuery.get();
   if (contractsSnap.empty) {
     return { ok: false, reason: "no_contract" };
   }
