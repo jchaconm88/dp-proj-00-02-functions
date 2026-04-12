@@ -10,28 +10,27 @@ service cloud.firestore {
       return request.auth.uid;
     }
 
-    /** Legacy: perfil `users`; tras migración también `request.auth.token.platformAdmin` (refreshTenantClaims). */
-    function usersDocHasPlatformAdminRole() {
-      return exists(/databases/$(database)/documents/users/$(myUid()))
-        && (
-          (
-            'roleIds' in get(/databases/$(database)/documents/users/$(myUid())).data
-            && get(/databases/$(database)/documents/users/$(myUid())).data.roleIds is list
-            && get(/databases/$(database)/documents/users/$(myUid())).data.roleIds.hasAny(['admin'])
-          )
-          || (
-            'role' in get(/databases/$(database)/documents/users/$(myUid())).data
-            && get(/databases/$(database)/documents/users/$(myUid())).data.role is list
-            && get(/databases/$(database)/documents/users/$(myUid())).data.role.hasAny(['admin'])
-          )
-        );
-    }
-
     function isPlatformAdmin() {
       return isSignedIn()
+        && request.auth.token.platformAdmin == true;
+    }
+
+    function tokenHasPermission(module, action) {
+      return isSignedIn()
+        && request.auth.token.permissionCodes is list
+        && request.auth.token.permissionCodes.hasAny([
+          "*",
+          module,
+          module + ":" + action,
+          "*:" + module
+        ]);
+    }
+
+    function canReadUsersCollection() {
+      return isSignedIn()
         && (
-          request.auth.token.platformAdmin == true
-          || usersDocHasPlatformAdminRole()
+          tokenHasPermission("user", "view")
+          || isPlatformAdmin()
         );
     }
 
@@ -55,13 +54,11 @@ service cloud.firestore {
         || request.auth.token.accountId == resource.data.accountId;
     }
 
-    /** Marcador en company-users.roleIds; alineado con la app (`__company_admin__`). */
-    function companyAdminForCompany(companyId) {
+    function canManageCompanyMembers(companyId) {
       return isSignedIn()
         && exists(/databases/$(database)/documents/company-users/$(companyUserId(companyId, myUid())))
         && get(/databases/$(database)/documents/company-users/$(companyUserId(companyId, myUid()))).data.status != "inactive"
-        && get(/databases/$(database)/documents/company-users/$(companyUserId(companyId, myUid()))).data.roleIds is list
-        && get(/databases/$(database)/documents/company-users/$(companyUserId(companyId, myUid()))).data.roleIds.hasAny(["__company_admin__"]);
+        && tokenHasPermission("user", "edit");
     }
 
     // Perfiles: colección `users` (alineado con ~/lib/auth-context).
@@ -75,7 +72,7 @@ service cloud.firestore {
             && request.auth.token.email != null
             && resource.data.email == request.auth.token.email
           )
-          || isPlatformAdmin()
+          || canReadUsersCollection()
         );
       allow write: if isSignedIn()
         && (request.auth.uid == userId || isPlatformAdmin());
@@ -129,16 +126,19 @@ service cloud.firestore {
         || (isSignedIn()
           && request.resource.data.companyId is string
           && request.resource.data.companyId.size() > 0
-          && request.resource.data.uid is string
-          && request.resource.data.uid.size() > 0
-          && companyAdminForCompany(request.resource.data.companyId));
+          && request.resource.data.userId is string
+          && request.resource.data.userId.size() > 0
+          && canManageCompanyMembers(request.resource.data.companyId));
       allow update: if isPlatformAdmin()
         || (isSignedIn()
           && resource.data.companyId == request.resource.data.companyId
-          && resource.data.uid == request.resource.data.uid
-          && companyAdminForCompany(resource.data.companyId));
+          && request.resource.data.userId is string
+          && request.resource.data.userId.size() > 0
+          // Compatibilidad de transición: valida contra el ID del doc, no contra campo legacy.
+          && membershipId == (resource.data.companyId + "_" + request.resource.data.userId)
+          && canManageCompanyMembers(resource.data.companyId));
       allow delete: if isPlatformAdmin()
-        || (isSignedIn() && companyAdminForCompany(resource.data.companyId));
+        || (isSignedIn() && canManageCompanyMembers(resource.data.companyId));
     }
 
     match /roles/{roleId} {

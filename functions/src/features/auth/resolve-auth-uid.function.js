@@ -1,27 +1,22 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
-const { admin, db } = require("../../lib/firebase");
+const { admin } = require("../../lib/firebase");
 
-const COMPANY_ADMIN_MARKER = "__company_admin__";
-
-function userIsPlatformAdmin(data) {
-  const d = data || {};
-  const role = Array.isArray(d.role) ? d.role : [];
-  const roleIds = Array.isArray(d.roleIds) ? d.roleIds : [];
-  return role.includes("admin") || roleIds.includes("admin");
+function normalizeCode(value) {
+  return String(value || "").trim().toLowerCase();
 }
 
-async function assertCanResolveUsersByEmail(uid) {
-  const userSnap = await db.collection("users").doc(uid).get();
-  if (userSnap.exists && userIsPlatformAdmin(userSnap.data())) return;
+function assertCanResolveUsersByEmail(auth) {
+  if (auth?.token?.platformAdmin === true) return;
 
-  const q = await db.collection("company-users").where("uid", "==", uid).limit(50).get();
-  for (const doc of q.docs) {
-    const d = doc.data() || {};
-    if (d.status === "inactive") continue;
-    const roleIds = Array.isArray(d.roleIds) ? d.roleIds : [];
-    if (roleIds.includes(COMPANY_ADMIN_MARKER)) return;
-  }
+  const codes = Array.isArray(auth?.token?.permissionCodes) ? auth.token.permissionCodes : [];
+  const set = new Set(codes.map((x) => normalizeCode(x)).filter(Boolean));
+  const canReadUsers =
+    set.has("*") ||
+    set.has("user") ||
+    set.has("user:view") ||
+    set.has("*:user");
 
+  if (canReadUsers) return;
   throw new HttpsError("permission-denied", "Sin permiso para resolver usuarios por email.");
 }
 
@@ -29,7 +24,7 @@ const resolveAuthUidByEmail = onCall({ cors: true }, async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Debes iniciar sesión.");
   }
-  await assertCanResolveUsersByEmail(request.auth.uid);
+  assertCanResolveUsersByEmail(request.auth);
 
   const email = String(request.data?.email ?? "").trim().toLowerCase();
   if (!email) {

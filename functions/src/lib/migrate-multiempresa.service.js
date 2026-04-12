@@ -93,13 +93,22 @@ async function resolveAccountIdForCompany(companyId) {
 async function upsertMembership(companyId, uid, roleIds) {
   const id = `${companyId}_${uid}`;
   const accountId = await resolveAccountIdForCompany(companyId);
+  const userSnap = await db.collection("users").doc(uid).get();
+  const userData = userSnap.exists ? userSnap.data() || {} : {};
+  const userEmail = String(userData.email ?? "").trim().toLowerCase();
+  const userDisplayName = String(userData.displayName ?? "").trim();
+  const user = userDisplayName || userEmail || uid;
   await db
     .collection("company-users")
     .doc(id)
     .set(
       {
         companyId,
-        uid,
+        userId: uid,
+        user,
+        userEmail: userEmail || undefined,
+        userDisplayName: userDisplayName || undefined,
+        usersDocId: uid,
         accountId,
         status: "active",
         roleIds: Array.isArray(roleIds) ? roleIds : [],
