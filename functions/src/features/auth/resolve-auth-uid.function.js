@@ -1,22 +1,9 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { admin } = require("../../lib/firebase");
-
-function normalizeCode(value) {
-  return String(value || "").trim().toLowerCase();
-}
+const { isGrantedFromAuthToken } = require("../../lib/permissions");
 
 function assertCanResolveUsersByEmail(auth) {
-  if (auth?.token?.platformAdmin === true) return;
-
-  const codes = Array.isArray(auth?.token?.permissionCodes) ? auth.token.permissionCodes : [];
-  const set = new Set(codes.map((x) => normalizeCode(x)).filter(Boolean));
-  const canReadUsers =
-    set.has("*") ||
-    set.has("user") ||
-    set.has("user:view") ||
-    set.has("*:user");
-
-  if (canReadUsers) return;
+  if (isGrantedFromAuthToken(auth, "user", "view")) return;
   throw new HttpsError("permission-denied", "Sin permiso para resolver usuarios por email.");
 }
 

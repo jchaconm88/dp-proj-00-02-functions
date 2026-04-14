@@ -17,6 +17,15 @@ const { migrateMultiempresa } = require("./src/features/system/migrations/migrat
 const { resolveAuthUidByEmail } = require("./src/features/auth/resolve-auth-uid.function");
 const { migrationHttp } = require("./src/features/system/migration-http.function");
 const { refreshTenantClaims } = require("./src/features/auth/refresh-tenant-claims.function");
+const {
+  systemListUsers,
+  systemListRolesByCompany,
+  systemListCompanyUsers,
+  systemListMyMemberships,
+  systemSaveCompanyMembership,
+  systemUpdateCompanyUser,
+  systemDeleteCompanyUser,
+} = require("./src/features/system/system-store.function");
 const { reconcileUsageMetrics } = require("./src/features/system/usage-metrics-reconcile.function");
 const { prepareDashboardSnapshot } = require("./src/features/system/prepare-dashboard-snapshot.function");
 const {
@@ -44,6 +53,13 @@ exports.migrateMultiempresa = migrateMultiempresa;
 exports.resolveAuthUidByEmail = resolveAuthUidByEmail;
 exports.migrationHttp = migrationHttp;
 exports.refreshTenantClaims = refreshTenantClaims;
+exports.systemListUsers = systemListUsers;
+exports.systemListRolesByCompany = systemListRolesByCompany;
+exports.systemListCompanyUsers = systemListCompanyUsers;
+exports.systemListMyMemberships = systemListMyMemberships;
+exports.systemSaveCompanyMembership = systemSaveCompanyMembership;
+exports.systemUpdateCompanyUser = systemUpdateCompanyUser;
+exports.systemDeleteCompanyUser = systemDeleteCompanyUser;
 exports.reconcileUsageMetrics = reconcileUsageMetrics;
 exports.prepareDashboardSnapshot = prepareDashboardSnapshot;
 exports.onAnyRootDocCreatedForDashboard = onAnyRootDocCreatedForDashboard;

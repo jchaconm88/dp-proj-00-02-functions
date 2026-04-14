@@ -16,7 +16,7 @@ Resumen de convenciones de **`dp-proj-00-02-functions`**. Las reglas detalladas 
 
 ## Callable de secuencias
 
-- Nombre exportado: **`generateSequenceCode`**. La web (`dp-proj-00-02-web`) debe usar el mismo identificador en `httpsCallable`.
+- Nombre exportado: **`generateSequenceCode`**. La web (`dp-proj-00-02-web`) debe invocar el mismo nombre vía **`callHttpsFunction`** en **`~/lib/functions.service.ts`** (no usar `httpsCallable` directamente en features).
 
 ## Despachadores Firestore (un trigger por colección)
 

@@ -54,6 +54,26 @@ service cloud.firestore {
         || request.auth.token.accountId == resource.data.accountId;
     }
 
+    function accountMatchesData(data) {
+      return !('accountId' in data)
+        || data.accountId == null
+        || !('accountId' in request.auth.token)
+        || request.auth.token.accountId == null
+        || request.auth.token.accountId == data.accountId;
+    }
+
+    function effectiveCompanyId() {
+      return request.method == "create"
+        ? request.resource.data.companyId
+        : resource.data.companyId;
+    }
+
+    function effectiveAccountMatches() {
+      return request.method == "create"
+        ? accountMatchesData(request.resource.data)
+        : accountMatchesData(resource.data);
+    }
+
     function canManageCompanyMembers(companyId) {
       return isSignedIn()
         && exists(/databases/$(database)/documents/company-users/$(companyUserId(companyId, myUid())))
@@ -145,7 +165,7 @@ service cloud.firestore {
       allow read: if isSignedIn() && isMember(resource.data.companyId) && legacyOrTokenAccountMatches();
       allow create: if isSignedIn()
         && isMember(request.resource.data.companyId)
-        && legacyOrTokenAccountMatches()
+        && accountMatchesData(request.resource.data)
         && request.resource.data.companyId is string
         && request.resource.data.companyId.size() > 0;
       allow update, delete: if isPlatformAdmin();
@@ -153,110 +173,133 @@ service cloud.firestore {
 
     // --- Transporte (colecciones raíz en kebab-case donde aplica) ---
     match /trip-assignments/{docId} {
-      allow read, write: if isSignedIn() && isMember(resource.data.companyId) && legacyOrTokenAccountMatches();
+      allow read, write: if isSignedIn() && isMember(effectiveCompanyId()) && effectiveAccountMatches();
     }
     match /trip-charges/{docId} {
-      allow read, write: if isSignedIn() && isMember(resource.data.companyId) && legacyOrTokenAccountMatches();
+      allow read, write: if isSignedIn() && isMember(effectiveCompanyId()) && effectiveAccountMatches();
     }
     match /trip-costs/{docId} {
-      allow read, write: if isSignedIn() && isMember(resource.data.companyId) && legacyOrTokenAccountMatches();
+      allow read, write: if isSignedIn() && isMember(effectiveCompanyId()) && effectiveAccountMatches();
     }
 
     match /trips/{tripId} {
-      allow read, write: if isSignedIn() && isMember(resource.data.companyId) && legacyOrTokenAccountMatches();
+      allow read: if isSignedIn() && isMember(resource.data.companyId) && legacyOrTokenAccountMatches();
+      allow create: if isSignedIn()
+        && isMember(request.resource.data.companyId)
+        && (
+          !('accountId' in request.resource.data)
+          || request.resource.data.accountId == null
+          || !('accountId' in request.auth.token)
+          || request.auth.token.accountId == null
+          || request.auth.token.accountId == request.resource.data.accountId
+        );
+      allow update, delete: if isSignedIn() && isMember(resource.data.companyId) && legacyOrTokenAccountMatches();
       match /tripStops/{stopId} {
         allow read, write: if isSignedIn()
           && isMember(get(/databases/$(database)/documents/trips/$(tripId)).data.companyId)
-          && legacyOrTokenAccountMatches();
+          && effectiveAccountMatches();
       }
     }
 
     match /settlements/{settlementId} {
-      allow read, write: if isSignedIn() && isMember(resource.data.companyId) && legacyOrTokenAccountMatches();
+      allow read, write: if isSignedIn() && isMember(effectiveCompanyId()) && effectiveAccountMatches();
       match /items/{itemId} {
         allow read, write: if isSignedIn()
           && isMember(get(/databases/$(database)/documents/settlements/$(settlementId)).data.companyId)
-          && legacyOrTokenAccountMatches();
+          && effectiveAccountMatches();
       }
     }
 
     match /transport-contracts/{contractId} {
-      allow read, write: if isSignedIn() && isMember(resource.data.companyId) && legacyOrTokenAccountMatches();
+      allow read, write: if isSignedIn() && isMember(effectiveCompanyId()) && effectiveAccountMatches();
       match /transport-rate-rules/{ruleId} {
         allow read, write: if isSignedIn()
           && isMember(get(/databases/$(database)/documents/transport-contracts/$(contractId)).data.companyId)
-          && legacyOrTokenAccountMatches();
+          && effectiveAccountMatches();
       }
     }
 
     match /transport-services/{docId} {
-      allow read, write: if isSignedIn() && isMember(resource.data.companyId) && legacyOrTokenAccountMatches();
+      allow read, write: if isSignedIn() && isMember(effectiveCompanyId()) && effectiveAccountMatches();
     }
 
     match /drivers/{docId} {
-      allow read, write: if isSignedIn() && isMember(resource.data.companyId) && legacyOrTokenAccountMatches();
+      allow read, write: if isSignedIn() && isMember(effectiveCompanyId()) && effectiveAccountMatches();
     }
     match /vehicles/{docId} {
-      allow read, write: if isSignedIn() && isMember(resource.data.companyId) && legacyOrTokenAccountMatches();
+      allow read, write: if isSignedIn() && isMember(effectiveCompanyId()) && effectiveAccountMatches();
     }
     match /trip-routes/{routeId} {
-      allow read, write: if isSignedIn() && isMember(resource.data.companyId) && legacyOrTokenAccountMatches();
+      allow read, write: if isSignedIn() && isMember(effectiveCompanyId()) && effectiveAccountMatches();
       match /stops/{stopId} {
         allow read, write: if isSignedIn()
           && isMember(get(/databases/$(database)/documents/trip-routes/$(routeId)).data.companyId)
-          && legacyOrTokenAccountMatches();
+          && effectiveAccountMatches();
       }
     }
     match /trip-plans/{docId} {
-      allow read, write: if isSignedIn() && isMember(resource.data.companyId) && legacyOrTokenAccountMatches();
+      allow read, write: if isSignedIn() && isMember(effectiveCompanyId()) && effectiveAccountMatches();
     }
 
     match /clients/{clientId} {
-      allow read, write: if isSignedIn() && isMember(resource.data.companyId) && legacyOrTokenAccountMatches();
+      allow read, write: if isSignedIn() && isMember(effectiveCompanyId()) && effectiveAccountMatches();
       match /locations/{locationId} {
         allow read, write: if isSignedIn()
           && isMember(get(/databases/$(database)/documents/clients/$(clientId)).data.companyId)
-          && legacyOrTokenAccountMatches();
+          && effectiveAccountMatches();
       }
     }
     match /document-types/{docId} {
-      allow read, write: if isSignedIn() && isMember(resource.data.companyId) && legacyOrTokenAccountMatches();
+      allow read, write: if isSignedIn() && isMember(effectiveCompanyId()) && effectiveAccountMatches();
+    }
+    match /charge-types/{docId} {
+      allow read: if isSignedIn() && isMember(resource.data.companyId) && legacyOrTokenAccountMatches();
+      allow create: if isSignedIn()
+        && isMember(request.resource.data.companyId)
+        && (
+          !('accountId' in request.resource.data)
+          || request.resource.data.accountId == null
+          || !('accountId' in request.auth.token)
+          || request.auth.token.accountId == null
+          || request.auth.token.accountId == request.resource.data.accountId
+        );
+      allow update, delete: if isSignedIn() && isMember(resource.data.companyId) && legacyOrTokenAccountMatches();
     }
 
     match /orders/{docId} {
-      allow read, write: if isSignedIn() && isMember(resource.data.companyId) && legacyOrTokenAccountMatches();
+      allow read, write: if isSignedIn() && isMember(effectiveCompanyId()) && effectiveAccountMatches();
     }
 
     match /employees/{docId} {
-      allow read, write: if isSignedIn() && isMember(resource.data.companyId) && legacyOrTokenAccountMatches();
+      allow read, write: if isSignedIn() && isMember(effectiveCompanyId()) && effectiveAccountMatches();
     }
     match /positions/{docId} {
-      allow read, write: if isSignedIn() && isMember(resource.data.companyId) && legacyOrTokenAccountMatches();
+      allow read, write: if isSignedIn() && isMember(effectiveCompanyId()) && effectiveAccountMatches();
     }
     match /resources/{resourceId} {
-      allow read, write: if isSignedIn() && isMember(resource.data.companyId) && legacyOrTokenAccountMatches();
+      allow read, write: if isSignedIn() && isMember(effectiveCompanyId()) && effectiveAccountMatches();
       match /resource-costs/{costId} {
         allow read, write: if isSignedIn()
           && isMember(get(/databases/$(database)/documents/resources/$(resourceId)).data.companyId)
-          && legacyOrTokenAccountMatches();
+          && effectiveAccountMatches();
       }
     }
 
     match /sequences/{docId} {
-      allow read, write: if isSignedIn() && isMember(resource.data.companyId) && legacyOrTokenAccountMatches();
+      allow read, write: if isSignedIn() && isMember(effectiveCompanyId()) && effectiveAccountMatches();
     }
     match /counters/{docId} {
-      allow read, write: if isSignedIn() && isMember(resource.data.companyId) && legacyOrTokenAccountMatches();
+      allow read, write: if isSignedIn() && isMember(effectiveCompanyId()) && effectiveAccountMatches();
     }
     match /modules/{docId} {
-      allow read, write: if isSignedIn() && isMember(resource.data.companyId) && legacyOrTokenAccountMatches();
+      allow read, write: if isSignedIn() && isMember(effectiveCompanyId()) && effectiveAccountMatches();
     }
 
     match /report-definitions/{docId} {
       allow read: if isSignedIn() && isMember(resource.data.companyId) && legacyOrTokenAccountMatches();
       allow write: if isSignedIn()
         && isMember(request.resource.data.companyId)
-        && legacyOrTokenAccountMatches()
+        && accountMatchesData(request.resource.data)
         && (
           !('notifyEmails' in request.resource.data)
           || (
