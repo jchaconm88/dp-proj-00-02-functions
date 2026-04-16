@@ -210,6 +210,20 @@ service cloud.firestore {
       }
     }
 
+    match /invoices/{invoiceId} {
+      allow read, write: if isSignedIn() && isMember(effectiveCompanyId()) && effectiveAccountMatches();
+      match /invoiceItems/{itemId} {
+        allow read, write: if isSignedIn()
+          && isMember(get(/databases/$(database)/documents/invoices/$(invoiceId)).data.companyId)
+          && effectiveAccountMatches();
+      }
+      match /invoiceCredits/{creditId} {
+        allow read, write: if isSignedIn()
+          && isMember(get(/databases/$(database)/documents/invoices/$(invoiceId)).data.companyId)
+          && effectiveAccountMatches();
+      }
+    }
+
     match /transport-contracts/{contractId} {
       allow read, write: if isSignedIn() && isMember(effectiveCompanyId()) && effectiveAccountMatches();
       match /transport-rate-rules/{ruleId} {
@@ -250,6 +264,9 @@ service cloud.firestore {
       }
     }
     match /document-types/{docId} {
+      allow read, write: if isSignedIn() && isMember(effectiveCompanyId()) && effectiveAccountMatches();
+    }
+    match /document-sequences/{docId} {
       allow read, write: if isSignedIn() && isMember(effectiveCompanyId()) && effectiveAccountMatches();
     }
     match /charge-types/{docId} {
