@@ -4,6 +4,7 @@ Resumen de convenciones de **`dp-proj-00-02-functions`**. Las reglas detalladas 
 
 ## Layout
 
+- Las reglas de Firestore viven en **`dp-proj-00-02-web/firestore.rules`**; este repo no las duplica ni las despliega (solo Cloud Functions).
 - `functions/index.js` → solo re-exports.
 - `functions/src/features/<dominio>/*.function.js` → handlers (HTTP, callable, Firestore, etc.).
 - `functions/src/lib/` → utilidades y lógica compartida.

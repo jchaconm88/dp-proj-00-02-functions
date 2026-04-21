@@ -6,7 +6,6 @@ function hasPermission(codes, moduleName, action) {
   const set = new Set((Array.isArray(codes) ? codes : []).map((x) => normalizeCode(x)).filter(Boolean));
   return (
     set.has("*")
-    || set.has(moduleCode)
     || set.has(`${moduleCode}:${actionCode}`)
     || set.has(`*:${moduleCode}`)
   );

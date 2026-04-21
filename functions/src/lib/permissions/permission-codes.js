@@ -7,7 +7,12 @@ function collectRolePermissionCodes(roleData) {
   const legacy = Array.isArray(d.permission) ? d.permission : [];
   for (const item of legacy) {
     const code = normalizeCode(item);
-    if (code) out.add(code);
+    if (!code) continue;
+    if (!code.includes(":")) {
+      out.add(`*:${code}`);
+      continue;
+    }
+    out.add(code);
   }
 
   const mapped = d.permissions && typeof d.permissions === "object" ? d.permissions : {};

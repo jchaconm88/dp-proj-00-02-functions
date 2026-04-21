@@ -8,7 +8,8 @@
     "shell": "firebase functions:shell",
     "start": "npm run shell",
     "deploy": "firebase deploy --only functions",
-    "logs": "firebase functions:log"
+    "logs": "firebase functions:log",
+    "test": "vitest --run"
   },
   "engines": {
     "node": "22"
@@ -19,11 +20,18 @@
     "express": "^4.21.1",
     "firebase-admin": "^13.7.0",
     "firebase-functions": "^7.2.2",
+    "handlebars": "^4.7.9",
+    "jszip": "^3.10.1",
+    "node-forge": "^1.4.0",
     "nodemailer": "^8.0.4",
-    "pdfkit": "^0.18.0"
+    "pdfkit": "^0.18.0",
+    "soap": "^1.9.1",
+    "xml-crypto": "^6.1.2"
   },
   "devDependencies": {
-    "firebase-functions-test": "^3.4.1"
+    "fast-check": "^4.6.0",
+    "firebase-functions-test": "^3.4.1",
+    "vitest": "^4.1.4"
   },
   "private": true
 }

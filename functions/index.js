@@ -35,6 +35,11 @@ const {
   onSubscriptionsWrittenForDashboard,
   onPlansWrittenForDashboard,
 } = require("./src/features/system/dashboard-snapshot-sync.function");
+const { sendInvoicesToSunat } = require('./src/features/billing/send-invoice.function');
+const { queryInvoicesCdr } = require('./src/features/billing/get-status-cdr.function');
+const { sendInvoicesPack } = require('./src/features/billing/send-invoice-pack.function');
+const { sendDailySummary } = require('./src/features/billing/send-daily-summary.function');
+const { processSunatJob, processSunatJobRetry } = require('./src/features/billing/process-sunat-job.function');
 
 exports.authFunction = authFunction;
 exports.getResourcePerTripCost = getResourcePerTripCost;
@@ -67,3 +72,9 @@ exports.onAnyRootDocDeletedForDashboard = onAnyRootDocDeletedForDashboard;
 exports.onUsageMonthsWrittenForDashboard = onUsageMonthsWrittenForDashboard;
 exports.onSubscriptionsWrittenForDashboard = onSubscriptionsWrittenForDashboard;
 exports.onPlansWrittenForDashboard = onPlansWrittenForDashboard;
+exports.sendInvoicesToSunat = sendInvoicesToSunat;
+exports.queryInvoicesCdr = queryInvoicesCdr;
+exports.sendInvoicesPack = sendInvoicesPack;
+exports.sendDailySummary = sendDailySummary;
+exports.processSunatJob = processSunatJob;
+exports.processSunatJobRetry = processSunatJobRetry;

@@ -1,0 +1,212 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
+         xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+         xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"
+         xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2">
+
+  <ext:UBLExtensions>
+    <ext:UBLExtension>
+      <ext:ExtensionContent/>
+    </ext:UBLExtension>
+  </ext:UBLExtensions>
+
+  <cbc:UBLVersionID>2.1</cbc:UBLVersionID>
+  <cbc:CustomizationID>2.0</cbc:CustomizationID>
+  <cbc:ID>{{documentNo}}</cbc:ID>
+  <cbc:IssueDate>{{issueDate}}</cbc:IssueDate>
+  <cbc:IssueTime>{{issueTime}}</cbc:IssueTime>
+  <cbc:InvoiceTypeCode listID="{{operationTypeCode}}" listAgencyName="PE:SUNAT" listName="Tipo de Documento">{{./docTypeCode}}</cbc:InvoiceTypeCode>
+  <cbc:Note languageLocaleID="1000"><![CDATA[{{amountToWords totalAmount currency}}]]></cbc:Note>
+  {{#if dueDate}}
+  <cbc:DueDate>{{dueDate}}</cbc:DueDate>
+  {{/if}}
+  <cbc:DocumentCurrencyCode>{{currency}}</cbc:DocumentCurrencyCode>
+
+  <cac:AccountingSupplierParty>
+    <cac:Party>
+      <cac:PartyIdentification>
+        <cbc:ID schemeID="6" schemeName="Documento de Identidad" schemeAgencyName="PE:SUNAT" schemeURI="urn:pe:gob:sunat:cpe:see:gem:catalogos:catalogo06">{{company.ruc}}</cbc:ID>
+      </cac:PartyIdentification>
+      <cac:PartyName>
+        <cbc:Name><![CDATA[{{company.businessName}}]]></cbc:Name>
+      </cac:PartyName>
+      <cac:PartyTaxScheme>
+        <cbc:RegistrationName><![CDATA[{{company.businessName}}]]></cbc:RegistrationName>
+        <cbc:CompanyID schemeID="6" schemeName="SUNAT:Identificador de Documento de Identidad" schemeAgencyName="PE:SUNAT" schemeURI="urn:pe:gob:sunat:cpe:see:gem:catalogos:catalogo06">{{company.ruc}}</cbc:CompanyID>
+        <cac:TaxScheme>
+          <cbc:ID>1000</cbc:ID>
+          <cbc:Name>IGV</cbc:Name>
+          <cbc:TaxTypeCode>VAT</cbc:TaxTypeCode>
+        </cac:TaxScheme>
+      </cac:PartyTaxScheme>
+      <cac:PartyLegalEntity>
+        <cbc:RegistrationName><![CDATA[{{company.businessName}}]]></cbc:RegistrationName>
+        <cac:RegistrationAddress>
+          <cbc:ID>{{company.ubigeo}}</cbc:ID>
+          <cbc:AddressTypeCode>0000</cbc:AddressTypeCode>
+          <cbc:CitySubdivisionName>{{company.district}}</cbc:CitySubdivisionName>
+          <cbc:CityName>{{company.city}}</cbc:CityName>
+          <cbc:CountrySubentity>{{company.country}}</cbc:CountrySubentity>
+          <cac:AddressLine>
+            <cbc:Line><![CDATA[{{company.address}}]]></cbc:Line>
+          </cac:AddressLine>
+          <cac:Country>
+            <cbc:IdentificationCode>PE</cbc:IdentificationCode>
+          </cac:Country>
+        </cac:RegistrationAddress>
+      </cac:PartyLegalEntity>
+    </cac:Party>
+  </cac:AccountingSupplierParty>
+
+  <cac:AccountingCustomerParty>
+    <cac:Party>
+      <cac:PartyIdentification>
+        <cbc:ID schemeID="{{client.identityDocCode}}" schemeName="Documento de Identidad" schemeAgencyName="PE:SUNAT" schemeURI="urn:pe:gob:sunat:cpe:see:gem:catalogos:catalogo06">{{client.identityDocNo}}</cbc:ID>
+      </cac:PartyIdentification>
+      <cac:PartyLegalEntity>
+        <cbc:RegistrationName><![CDATA[{{client.businessName}}]]></cbc:RegistrationName>
+        <cac:RegistrationAddress>
+          <cac:AddressLine>
+            <cbc:Line><![CDATA[{{client.address}}]]></cbc:Line>
+          </cac:AddressLine>
+        </cac:RegistrationAddress>
+      </cac:PartyLegalEntity>
+    </cac:Party>
+  </cac:AccountingCustomerParty>
+
+  {{#if (isContado payTerm)}}
+  <cac:PaymentTerms>
+    <cbc:ID>FormaPago</cbc:ID>
+    <cbc:PaymentMeansID>Contado</cbc:PaymentMeansID>
+  </cac:PaymentTerms>
+  {{else}}
+  <cac:PaymentTerms>
+    <cbc:ID>FormaPago</cbc:ID>
+    <cbc:PaymentMeansID>Credito</cbc:PaymentMeansID>
+  </cac:PaymentTerms>
+  {{#each credits}}
+  <cac:PaymentTerms>
+    <cbc:ID>FormaPago{{correlative}}</cbc:ID>
+    <cbc:PaymentMeansID>Cuota{{correlative}}</cbc:PaymentMeansID>
+    <cbc:PaymentDueDate>{{dueDate}}</cbc:PaymentDueDate>
+    <cbc:Amount currencyID="{{../currency}}">{{formatAmount amount}}</cbc:Amount>
+  </cac:PaymentTerms>
+  {{/each}}
+  {{/if}}
+
+  <cac:TaxTotal>
+    <cbc:TaxAmount currencyID="{{currency}}">{{formatAmount totalTax}}</cbc:TaxAmount>
+    {{#each taxSubtotals}}
+    <cac:TaxSubtotal>
+      <cbc:TaxableAmount currencyID="{{../currency}}">{{formatAmount taxableAmount}}</cbc:TaxableAmount>
+      <cbc:TaxAmount currencyID="{{../currency}}">{{formatAmount taxAmount}}</cbc:TaxAmount>
+      <cac:TaxCategory>
+        {{#if percent}}
+        <cbc:Percent>{{percent}}</cbc:Percent>
+        {{/if}}
+        <cbc:TaxExemptionReasonCode>{{exemptionCode}}</cbc:TaxExemptionReasonCode>
+        <cac:TaxScheme>
+          <cbc:ID>{{schemeId}}</cbc:ID>
+          <cbc:Name>{{schemeName}}</cbc:Name>
+          <cbc:TaxTypeCode>{{typeCode}}</cbc:TaxTypeCode>
+        </cac:TaxScheme>
+      </cac:TaxCategory>
+    </cac:TaxSubtotal>
+    {{/each}}
+  </cac:TaxTotal>
+
+  <cac:LegalMonetaryTotal>
+    <cbc:LineExtensionAmount currencyID="{{currency}}">{{formatAmount totalPrice}}</cbc:LineExtensionAmount>
+    <cbc:TaxInclusiveAmount currencyID="{{currency}}">{{formatAmount totalAmount}}</cbc:TaxInclusiveAmount>
+    <cbc:PayableAmount currencyID="{{currency}}">{{formatAmount totalAmount}}</cbc:PayableAmount>
+  </cac:LegalMonetaryTotal>
+
+  {{#each items}}
+  <cac:InvoiceLine>
+    <cbc:ID>{{lineNo}}</cbc:ID>
+    <cbc:InvoicedQuantity unitCode="{{unitCode}}">{{quantity}}</cbc:InvoicedQuantity>
+    <cbc:LineExtensionAmount currencyID="{{../currency}}">{{formatAmount price}}</cbc:LineExtensionAmount>
+    <cac:PricingReference>
+      <cac:AlternativeConditionPrice>
+        <cbc:PriceAmount currencyID="{{../currency}}">{{formatAmount unitPriceWithTax}}</cbc:PriceAmount>
+        <cbc:PriceTypeCode>01</cbc:PriceTypeCode>
+      </cac:AlternativeConditionPrice>
+    </cac:PricingReference>
+    <cac:TaxTotal>
+      <cbc:TaxAmount currencyID="{{../currency}}">{{formatAmount tax}}</cbc:TaxAmount>
+      <cac:TaxSubtotal>
+        {{#if (isGravado taxAffectationCode)}}
+        <cbc:TaxableAmount currencyID="{{../currency}}">{{formatAmount price}}</cbc:TaxableAmount>
+        <cbc:TaxAmount currencyID="{{../currency}}">{{formatAmount tax}}</cbc:TaxAmount>
+        <cac:TaxCategory>
+          <cbc:Percent>{{taxPer}}</cbc:Percent>
+          <cbc:TaxExemptionReasonCode>{{taxAffectationCode}}</cbc:TaxExemptionReasonCode>
+          <cac:TaxScheme>
+            <cbc:ID>1000</cbc:ID>
+            <cbc:Name>IGV</cbc:Name>
+            <cbc:TaxTypeCode>VAT</cbc:TaxTypeCode>
+          </cac:TaxScheme>
+        </cac:TaxCategory>
+        {{else if (isExonerado taxAffectationCode)}}
+        <cbc:TaxableAmount currencyID="{{../currency}}">{{formatAmount price}}</cbc:TaxableAmount>
+        <cbc:TaxAmount currencyID="{{../currency}}">0.00</cbc:TaxAmount>
+        <cac:TaxCategory>
+          <cbc:TaxExemptionReasonCode>{{taxAffectationCode}}</cbc:TaxExemptionReasonCode>
+          <cac:TaxScheme>
+            <cbc:ID>9997</cbc:ID>
+            <cbc:Name>EXO</cbc:Name>
+            <cbc:TaxTypeCode>VAT</cbc:TaxTypeCode>
+          </cac:TaxScheme>
+        </cac:TaxCategory>
+        {{else if (isInafecto taxAffectationCode)}}
+        <cbc:TaxableAmount currencyID="{{../currency}}">0.00</cbc:TaxableAmount>
+        <cbc:TaxAmount currencyID="{{../currency}}">0.00</cbc:TaxAmount>
+        <cac:TaxCategory>
+          <cbc:TaxExemptionReasonCode>{{taxAffectationCode}}</cbc:TaxExemptionReasonCode>
+          <cac:TaxScheme>
+            <cbc:ID>9998</cbc:ID>
+            <cbc:Name>INA</cbc:Name>
+            <cbc:TaxTypeCode>FRE</cbc:TaxTypeCode>
+          </cac:TaxScheme>
+        </cac:TaxCategory>
+        {{else if (isExportacion taxAffectationCode)}}
+        <cbc:TaxableAmount currencyID="{{../currency}}">{{formatAmount price}}</cbc:TaxableAmount>
+        <cbc:TaxAmount currencyID="{{../currency}}">0.00</cbc:TaxAmount>
+        <cac:TaxCategory>
+          <cbc:TaxExemptionReasonCode>{{taxAffectationCode}}</cbc:TaxExemptionReasonCode>
+          <cac:TaxScheme>
+            <cbc:ID>9995</cbc:ID>
+            <cbc:Name>EXP</cbc:Name>
+            <cbc:TaxTypeCode>FRE</cbc:TaxTypeCode>
+          </cac:TaxScheme>
+        </cac:TaxCategory>
+        {{else}}
+        <cbc:TaxableAmount currencyID="{{../currency}}">{{formatAmount price}}</cbc:TaxableAmount>
+        <cbc:TaxAmount currencyID="{{../currency}}">{{formatAmount tax}}</cbc:TaxAmount>
+        <cac:TaxCategory>
+          <cbc:Percent>{{taxPer}}</cbc:Percent>
+          <cbc:TaxExemptionReasonCode>{{taxAffectationCode}}</cbc:TaxExemptionReasonCode>
+          <cac:TaxScheme>
+            <cbc:ID>{{taxSchemeCode}}</cbc:ID>
+            <cbc:Name>{{taxSchemeName}}</cbc:Name>
+            <cbc:TaxTypeCode>{{taxTypeCode}}</cbc:TaxTypeCode>
+          </cac:TaxScheme>
+        </cac:TaxCategory>
+        {{/if}}
+      </cac:TaxSubtotal>
+    </cac:TaxTotal>
+    <cac:Item>
+      <cbc:Description><![CDATA[{{description}}]]></cbc:Description>
+      {{#if itemCode}}
+      <cac:SellersItemIdentification>
+        <cbc:ID>{{itemCode}}</cbc:ID>
+      </cac:SellersItemIdentification>
+      {{/if}}
+    </cac:Item>
+    <cac:Price>
+      <cbc:PriceAmount currencyID="{{../currency}}">{{formatAmount unitPrice}}</cbc:PriceAmount>
+    </cac:Price>
+  </cac:InvoiceLine>
+  {{/each}}
+
+</Invoice>
