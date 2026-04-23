@@ -6,7 +6,7 @@ const {
   getStatusCdr,
   readCdr,
 } = require("../../lib/sunat/sunat-soap.service");
-const { assertSunatConfigActive } = require("../../lib/sunat/sunat-config-assert");
+const { assertActiveSunatConfigForCompany } = require("../../lib/sunat/sunat-config-assert");
 
 /** Maps invoice type to SUNAT document type code (Catálogo 01). */
 const DOC_TYPE_CODE = {
@@ -43,8 +43,7 @@ async function querySingleInvoiceCdr(invoiceId) {
   const { documentNo, companyId, type } = invoiceData;
 
   // 2. Read sunat-config for the company (debe existir y estar activa)
-  const configSnap = await db.collection("sunat-config").doc(companyId).get();
-  const config = assertSunatConfigActive(configSnap);
+  const config = await assertActiveSunatConfigForCompany(db, companyId);
 
   // 3. Parse documentNo → series and number
   const { series, number } = parseDocumentNo(documentNo);
@@ -58,7 +57,7 @@ async function querySingleInvoiceCdr(invoiceId) {
   const password = config.passwordSunat;
 
   // Use urlConsultaServidor if present, fall back to urlServidorSunat
-  const url = config.urlConsultaServidor ?? config.urlServidorSunat;
+  const url = config.urlConsultaServidorSunat ?? config.urlServidorSunat;
 
   // 6. Call getStatusCdr from sunat-soap.service (billConsultService)
   const { statusCode, statusMessage, content } = await getStatusCdr(url, ruc, docTypeCode, series, number, user, password);

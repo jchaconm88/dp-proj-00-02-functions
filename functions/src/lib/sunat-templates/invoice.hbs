@@ -83,13 +83,14 @@
   <cac:PaymentTerms>
     <cbc:ID>FormaPago</cbc:ID>
     <cbc:PaymentMeansID>Credito</cbc:PaymentMeansID>
+    <cbc:Amount currencyID="{{currency}}">{{formatAmount totalAmount}}</cbc:Amount>
   </cac:PaymentTerms>
   {{#each credits}}
   <cac:PaymentTerms>
-    <cbc:ID>FormaPago{{correlative}}</cbc:ID>
-    <cbc:PaymentMeansID>Cuota{{correlative}}</cbc:PaymentMeansID>
-    <cbc:PaymentDueDate>{{dueDate}}</cbc:PaymentDueDate>
+    <cbc:ID>FormaPago</cbc:ID>
+    <cbc:PaymentMeansID>{{paymentMeansId}}</cbc:PaymentMeansID>
     <cbc:Amount currencyID="{{../currency}}">{{formatAmount amount}}</cbc:Amount>
+    <cbc:PaymentDueDate>{{dueDate}}</cbc:PaymentDueDate>
   </cac:PaymentTerms>
   {{/each}}
   {{/if}}

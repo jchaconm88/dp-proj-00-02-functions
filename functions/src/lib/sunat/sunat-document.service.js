@@ -28,6 +28,36 @@ const BILL_TYPE_REF_MAP = {
 // ---------------------------------------------------------------------------
 
 /**
+ * Genera XML firmado y ZIP (sin enviar a SUNAT).
+ *
+ * @param {string} docType
+ * @param {object} payload
+ * @param {object} credentials
+ * @returns {Promise<{ ruc: string, user: string, password: string, xmlName: string, zipName: string, signedXml: string, zipBuffer: Buffer }>}
+ */
+async function generateSignedXmlAndZip(docType, payload, credentials) {
+  const templatePath = path.resolve(__dirname, `../sunat-templates/${docType}.hbs`);
+  const templateSource = fs.readFileSync(templatePath, "utf8");
+  const template = Handlebars.compile(templateSource);
+
+  const xml = template(payload);
+
+  const ruc = payload.company.ruc;
+  const docTypeCode = payload.docTypeCode;
+  const documentNo = payload.documentNo;
+  const xmlName = `${ruc}-${docTypeCode}-${documentNo}.xml`;
+  const zipName = xmlName.replace(".xml", ".zip");
+
+  const signedXml = await signXml(xml, credentials.certBase64, credentials.passwordCertificado);
+  const zipBuffer = await createZip(zipName, xmlName, signedXml);
+
+  const user = `${ruc}${credentials.usuarioSunat}`;
+  const password = credentials.passwordSunat;
+
+  return { ruc, user, password, xmlName, zipName, signedXml, zipBuffer };
+}
+
+/**
  * Orquesta la generación, firma, compresión y envío de un comprobante a SUNAT.
  *
  * @param {string} docType      - "invoice" | "credit-note" | "debit-note"
@@ -36,37 +66,13 @@ const BILL_TYPE_REF_MAP = {
  * @returns {Promise<{ zipBuffer: Buffer, zipName: string, cdrBuffer: Buffer, cdrName: string, success: boolean, status: string, response: string }>}
  */
 async function processDocument(docType, payload, credentials) {
-  // 1. Cargar template
-  const templatePath = path.resolve(
-    __dirname,
-    `../sunat-templates/${docType}.hbs`
-  );
-  const templateSource = fs.readFileSync(templatePath, "utf8");
-  const template = Handlebars.compile(templateSource);
-
-  // 2. Renderizar XML con el payload
-  const xml = template(payload);
-
-  // 3. Construir nombre de archivo
-  const ruc = payload.company.ruc;
-  const docTypeCode = payload.docTypeCode;
-  const documentNo = payload.documentNo;
-  const xmlName = `${ruc}-${docTypeCode}-${documentNo}.xml`;
-  const zipName = xmlName.replace(".xml", ".zip");
-
-  // 4. Firmar XML
-  const signedXml = await signXml(
-    xml,
-    credentials.certBase64,
-    credentials.passwordCertificado
+  const { ruc, user, password, zipName, zipBuffer } = await generateSignedXmlAndZip(
+    docType,
+    payload,
+    credentials
   );
 
-  // 5. Crear ZIP
-  const zipBuffer = await createZip(zipName, xmlName, signedXml);
-
-  // 6. Enviar a SUNAT
-  const user = `${ruc}${credentials.usuarioSunat}`;
-  const password = credentials.passwordSunat;
+  // Enviar a SUNAT
   const cdrBuffer = await sendDocument(
     credentials.urlServidorSunat,
     zipBuffer,
@@ -247,12 +253,36 @@ function mapInvoiceToSunatPayload(invoiceData, items, credits) {
 
   const taxSubtotals = _buildTaxSubtotals(mappedItems);
 
-  // Mapear créditos
-  const mappedCredits = (credits ?? []).map((credit) => ({
-    correlative: credit.correlative,
-    dueDate: credit.dueDate,
-    amount: credit.creditVal,
+  // Mapear créditos (cuotas). SUNAT requiere al menos 1 cuota si payTerm es Crédito.
+  const payTerm = invoiceData.payTerm ?? "cash";
+  let mappedCredits = (credits ?? []).map((credit) => ({
+    correlative: Number(credit.correlative) || 1,
+    dueDate: String(credit.dueDate ?? "").trim(),
+    amount: Number(credit.creditVal) || 0,
   }));
+
+  if (payTerm !== "transfer" && payTerm !== "cash" && mappedCredits.length === 0) {
+    // Fallback: una cuota por el total (evita error SUNAT 3249 si el front no envió cuotas).
+    mappedCredits = [
+      {
+        correlative: 1,
+        dueDate: String(invoiceData.dueDate ?? issueDate ?? "").trim(),
+        amount: Number(invoiceData.totalAmount) || 0,
+      },
+    ];
+  }
+
+  mappedCredits = mappedCredits
+    .filter((c) => Number(c.amount) > 0)
+    .map((c) => {
+      const corr = Number(c.correlative) || 1;
+      const corr3 = String(corr).padStart(3, "0");
+      return {
+        ...c,
+        correlative: corr,
+        paymentMeansId: `Cuota${corr3}`,
+      };
+    });
 
   return {
     documentNo: invoiceData.documentNo ?? "",
@@ -264,12 +294,20 @@ function mapInvoiceToSunatPayload(invoiceData, items, credits) {
     totalPrice: invoiceData.totalPrice ?? 0,
     totalTax: invoiceData.totalTax ?? 0,
     totalAmount: invoiceData.totalAmount ?? 0,
-    payTerm: invoiceData.payTerm ?? "cash",
+    payTerm,
     operationTypeCode: invoiceData.operationTypeCode ?? "0101",
     dueDate: invoiceData.dueDate ?? "",
     note: amountToWords(invoiceData.totalAmount ?? 0, invoiceData.currency ?? "PEN"),
     company: {
-      ruc: invoiceData.company?.ruc ?? invoiceData.companyRuc ?? "",
+      // En InvoiceRecord (web) el RUC vive en `company.identityDocumentNo`.
+      // Mantener compatibilidad con posibles payloads legacy (`companyRuc`).
+      ruc:
+        String(
+          invoiceData.company?.identityDocumentNo ??
+            invoiceData.company?.ruc ??
+            invoiceData.companyRuc ??
+            ""
+        ).trim(),
       businessName: invoiceData.company?.businessName ?? invoiceData.companyName ?? "",
       ubigeo: invoiceData.company?.ubigeo ?? "",
       city: invoiceData.company?.city ?? "",
@@ -295,4 +333,4 @@ function mapInvoiceToSunatPayload(invoiceData, items, credits) {
 // Exports
 // ---------------------------------------------------------------------------
 
-module.exports = { processDocument, mapInvoiceToSunatPayload };
+module.exports = { processDocument, generateSignedXmlAndZip, mapInvoiceToSunatPayload };

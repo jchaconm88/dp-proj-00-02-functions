@@ -23,8 +23,28 @@ function assertSunatConfigActive(configSnap) {
  * @returns {Promise<Record<string, unknown>>}
  */
 async function assertActiveSunatConfigForCompany(db, companyId) {
-  const snap = await db.collection("sunat-config").doc(companyId).get();
-  return assertSunatConfigActive(snap);
+  const compId = String(companyId ?? "").trim();
+  if (!compId) throw new Error("companyId es obligatorio.");
+
+  // Normalizado: la configuración vive en docs con ID arbitrario; se selecciona por companyId + active flag.
+  const snap = await db
+    .collection("sunat-config")
+    .where("companyId", "==", compId)
+    .limit(25)
+    .get();
+
+  if (snap.empty) {
+    throw new Error("Configuración SUNAT no encontrada para esta empresa.");
+  }
+
+  const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const active = docs.find((d) => d.active !== false);
+  if (!active) {
+    throw new Error(
+      "La configuración SUNAT está desactivada. Actívala en Facturación → Configuración SUNAT."
+    );
+  }
+  return active;
 }
 
 module.exports = {

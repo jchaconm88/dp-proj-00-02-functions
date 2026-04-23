@@ -1,10 +1,10 @@
 "use strict";
 
-const { onDocumentCreated, onDocumentUpdated } = require("firebase-functions/v2/firestore");
+const { onDocumentCreated } = require("firebase-functions/v2/firestore");
 const { db, admin } = require("../../lib/firebase");
-const { processDocument, mapInvoiceToSunatPayload } = require("../../lib/sunat/sunat-document.service");
-const { updateJob, scheduleRetry } = require("../../lib/sunat/sunat-job.service");
-const { assertSunatConfigActive } = require("../../lib/sunat/sunat-config-assert");
+const { generateSignedXmlAndZip, processDocument, mapInvoiceToSunatPayload } = require("../../lib/sunat/sunat-document.service");
+const { updateJob } = require("../../lib/sunat/sunat-job.service");
+const { assertActiveSunatConfigForCompany } = require("../../lib/sunat/sunat-config-assert");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -62,12 +62,20 @@ async function _processSendBillJob(jobId, job) {
 
   // 2. Read invoice + subcollections
   const { invoiceData, items, credits } = await _readInvoiceWithSubcollections(invoiceId);
+  // Denormalizar datos clave del documento en el job para evitar joins desde la web.
+  const documentNo = String(invoiceData?.documentNo ?? "").trim();
+  const docType = String(invoiceData?.type ?? "").trim();
+  const issueDate = String(invoiceData?.issueDate ?? "").trim();
+  await updateJob(db, jobId, {
+    ...(documentNo ? { documentNo } : {}),
+    ...(docType ? { docType } : {}),
+    ...(issueDate ? { issueDate } : {}),
+  });
 
   // 3. Read sunat-config (existente y activa)
-  const configSnap = await db.collection("sunat-config").doc(companyId).get();
   let config;
   try {
-    config = assertSunatConfigActive(configSnap);
+    config = await assertActiveSunatConfigForCompany(db, companyId);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Configuración SUNAT no disponible.";
     await updateJob(db, jobId, { status: "error", errorMessage: msg });
@@ -75,22 +83,34 @@ async function _processSendBillJob(jobId, job) {
     return;
   }
 
-  // 4. Map payload and process document
+  // 4. Map payload and generar artefactos (XML firmado + ZIP) ANTES de enviar.
   const payload = mapInvoiceToSunatPayload(invoiceData, items, credits);
-  const result = await processDocument("invoice", payload, config);
+  const artifacts = await generateSignedXmlAndZip("invoice", payload, config);
 
-  const { zipBuffer, zipName, cdrBuffer, cdrName, success, messages } = result;
-  // Normalize messages — processDocument returns `response` (string), not `messages`
-  const cdrMessages = result.messages ?? (result.response ? [result.response] : []);
-
-  // 5. Upload ZIP and CDR to Firebase Storage
+  // 5. Subir XML y ZIP siempre (sirve para depurar incluso cuando SUNAT rechaza por parsing/validación).
+  let xmlUrl = null;
   let zipUrl = null;
   let cdrUrl = null;
   try {
-    [zipUrl, cdrUrl] = await Promise.all([
-      _uploadToStorage(companyId, zipName, zipBuffer, "application/zip"),
-      _uploadToStorage(companyId, cdrName, cdrBuffer, "application/zip"),
+    const xmlBuffer = Buffer.from(artifacts.signedXml, "utf8");
+    [xmlUrl, zipUrl] = await Promise.all([
+      _uploadToStorage(companyId, artifacts.xmlName, xmlBuffer, "application/xml"),
+      _uploadToStorage(companyId, artifacts.zipName, artifacts.zipBuffer, "application/zip"),
     ]);
+    await updateJob(db, jobId, { xmlUrl, zipUrl });
+  } catch (storageErr) {
+    console.error("Error al subir XML/ZIP a Storage:", storageErr);
+  }
+
+  // 6. Enviar a SUNAT (puede fallar por parsing; en ese caso igual quedan XML/ZIP arriba).
+  const result = await processDocument("invoice", payload, config);
+
+  const { cdrBuffer, cdrName, success } = result;
+  const cdrMessages = result.messages ?? (result.response ? [result.response] : []);
+
+  // 7. Upload CDR to Firebase Storage (ZIP y XML ya fueron subidos arriba)
+  try {
+    cdrUrl = await _uploadToStorage(companyId, cdrName, cdrBuffer, "application/zip");
   } catch (storageErr) {
     console.error("Error al subir archivos a Storage:", storageErr);
     // Non-fatal — continue with status update
@@ -99,7 +119,7 @@ async function _processSendBillJob(jobId, job) {
   const invoiceStatus = success ? "accepted" : "rejected";
   const jobStatus = success ? "accepted" : "rejected";
 
-  // 6. Update invoice
+  // 8. Update invoice
   await db.collection("invoices").doc(invoiceId).update({
     status: invoiceStatus,
     zipUrl,
@@ -107,10 +127,15 @@ async function _processSendBillJob(jobId, job) {
     sunatResponse: result.response ?? "",
   });
 
-  // 7. Update job
+  // 9. Update job
   await updateJob(db, jobId, {
     status: jobStatus,
     cdrMessages,
+    zipUrl,
+    cdrUrl,
+    xmlUrl,
+    pdfUrl: String(invoiceData?.pdfUrl ?? "").trim() || "",
+    sunatResponse: result.response ?? "",
   });
 }
 
@@ -139,66 +164,13 @@ exports.processSunatJob = onDocumentCreated("sunat-jobs/{jobId}", async (event) 
     await _processSendBillJob(jobId, job);
   } catch (err) {
     console.error(`Error procesando job ${jobId}:`, err);
-
-    // Schedule retry or mark as failed
-    await scheduleRetry(db, jobId, job.retryCount ?? 0, job.maxRetries ?? 3);
-
-    // Update invoice to pending_retry
+    const msg = err instanceof Error ? err.message : String(err ?? "Error desconocido");
+    await updateJob(db, jobId, { status: "error", errorMessage: msg });
     if (job.invoiceId) {
       try {
-        await db.collection("invoices").doc(job.invoiceId).update({
-          status: "pending_retry",
-        });
+        await db.collection("invoices").doc(job.invoiceId).update({ status: "error" });
       } catch (invoiceErr) {
-        console.error("Error actualizando factura a pending_retry:", invoiceErr);
-      }
-    }
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Trigger 2: onDocumentUpdated — handle automatic retries
-// ---------------------------------------------------------------------------
-
-/**
- * Firestore trigger: fires when a sunat-jobs document is updated.
- * Re-processes the job when status = "pending_retry" and nextRetryAt <= now.
- */
-exports.processSunatJobRetry = onDocumentUpdated("sunat-jobs/{jobId}", async (event) => {
-  const jobId = event.params.jobId;
-  const after = event.data.after;
-
-  if (!after || !after.exists) return;
-
-  const job = after.data();
-
-  // Only handle pending_retry jobs whose retry time has arrived
-  if (job.status !== "pending_retry") return;
-
-  const nextRetryAt = job.nextRetryAt;
-  if (!nextRetryAt) return;
-
-  const now = new Date();
-  const retryDate = nextRetryAt.toDate ? nextRetryAt.toDate() : new Date(nextRetryAt);
-
-  if (retryDate > now) return;
-
-  if (job.jobType !== "sendBill") return;
-
-  try {
-    await _processSendBillJob(jobId, job);
-  } catch (err) {
-    console.error(`Error en reintento del job ${jobId}:`, err);
-
-    await scheduleRetry(db, jobId, job.retryCount ?? 0, job.maxRetries ?? 3);
-
-    if (job.invoiceId) {
-      try {
-        await db.collection("invoices").doc(job.invoiceId).update({
-          status: "pending_retry",
-        });
-      } catch (invoiceErr) {
-        console.error("Error actualizando factura a pending_retry:", invoiceErr);
+        console.error("Error actualizando factura a error:", invoiceErr);
       }
     }
   }

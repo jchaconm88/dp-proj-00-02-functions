@@ -30,7 +30,11 @@ exports.sendInvoicesToSunat = onCall(async ({ data }) => {
       throw new Error(`Factura no encontrada: ${invoiceId}`);
     }
 
-    const { companyId } = invoiceSnap.data();
+    const invoiceData = invoiceSnap.data() || {};
+    const companyId = invoiceData.companyId;
+    const documentNo = String(invoiceData.documentNo ?? "").trim();
+    const docType = String(invoiceData.type ?? "").trim(); // invoice|credit_note|debit_note
+    const issueDate = String(invoiceData.issueDate ?? "").trim();
 
     if (!companiesChecked.has(companyId)) {
       await assertActiveSunatConfigForCompany(db, companyId);
@@ -43,6 +47,9 @@ exports.sendInvoicesToSunat = onCall(async ({ data }) => {
       invoiceId,
       companyId,
       status: "queued",
+      documentNo,
+      docType,
+      issueDate,
     });
 
     // 3. Update invoice status to "queued"
