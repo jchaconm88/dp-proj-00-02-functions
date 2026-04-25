@@ -15,6 +15,7 @@
     "node": "22"
   },
   "dependencies": {
+    "@sparticuz/chromium": "^131.0.1",
     "axios": "^1.7.7",
     "exceljs": "^4.4.0",
     "express": "^4.21.1",
@@ -25,6 +26,7 @@
     "node-forge": "^1.4.0",
     "nodemailer": "^8.0.4",
     "pdfkit": "^0.18.0",
+    "puppeteer-core": "^23.11.1",
     "soap": "^1.9.1",
     "xml-crypto": "^6.1.2"
   },

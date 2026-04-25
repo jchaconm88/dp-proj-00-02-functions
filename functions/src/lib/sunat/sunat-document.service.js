@@ -210,9 +210,20 @@ function mapInvoiceToSunatPayload(invoiceData, items, credits) {
   const docTypeCode = DOC_TYPE_CODE_MAP[invoiceData.type] ?? "01";
   const billTypeRefCode = BILL_TYPE_REF_MAP[invoiceData.type] ?? "0101";
 
-  // issueDate ya viene en YYYY-MM-DD
-  const issueDate = invoiceData.issueDate ?? "";
-  const issueTime = "00:00:00";
+  // Para SUNAT `cbc:IssueDate` debe ser xsd:date (YYYY-MM-DD). Blindamos ISO datetime y otros formatos.
+  const issueDateRaw = String(invoiceData.issueDate ?? "").trim();
+  const mDate = issueDateRaw.match(/^\d{4}-\d{2}-\d{2}/);
+  const issueDate = mDate ? mDate[0] : (issueDateRaw.includes("T") ? issueDateRaw.split("T")[0] : issueDateRaw);
+
+  // `cbc:IssueTime` es opcional en UBL, pero lo mantenemos. Si hay hora en el ISO, úsala; sino 00:00:00.
+  const afterT = issueDateRaw.includes("T") ? String(issueDateRaw.split("T")[1] ?? "").trim() : "";
+  const hhmmss = afterT ? afterT.split(".")[0] : "";
+  const issueTime =
+    hhmmss && /^\d{2}:\d{2}(:\d{2})?$/.test(hhmmss)
+      ? hhmmss.split(":").length === 2
+        ? `${hhmmss}:00`
+        : hhmmss
+      : "00:00:00";
 
   // Mapear ítems
   const mappedItems = (items ?? []).map((item, idx) => {
@@ -284,6 +295,8 @@ function mapInvoiceToSunatPayload(invoiceData, items, credits) {
       };
     });
 
+  const creditsTotalAmount = mappedCredits.reduce((s, c) => s + (Number(c.amount) || 0), 0);
+
   return {
     documentNo: invoiceData.documentNo ?? "",
     issueDate,
@@ -294,6 +307,7 @@ function mapInvoiceToSunatPayload(invoiceData, items, credits) {
     totalPrice: invoiceData.totalPrice ?? 0,
     totalTax: invoiceData.totalTax ?? 0,
     totalAmount: invoiceData.totalAmount ?? 0,
+    creditsTotalAmount,
     payTerm,
     operationTypeCode: invoiceData.operationTypeCode ?? "0101",
     dueDate: invoiceData.dueDate ?? "",
@@ -309,11 +323,12 @@ function mapInvoiceToSunatPayload(invoiceData, items, credits) {
             ""
         ).trim(),
       businessName: invoiceData.company?.businessName ?? invoiceData.companyName ?? "",
-      ubigeo: invoiceData.company?.ubigeo ?? "",
-      city: invoiceData.company?.city ?? "",
-      country: invoiceData.company?.country ?? "",
-      district: invoiceData.company?.district ?? "",
-      address: invoiceData.company?.address ?? "",
+      // La dirección fiscal normalmente vive en companyLocation (snapshot en la factura).
+      ubigeo: invoiceData.companyLocation?.ubigeo ?? invoiceData.company?.ubigeo ?? "",
+      city: invoiceData.companyLocation?.city ?? invoiceData.company?.city ?? "",
+      country: invoiceData.companyLocation?.country ?? invoiceData.company?.country ?? "",
+      district: invoiceData.companyLocation?.district ?? invoiceData.company?.district ?? "",
+      address: invoiceData.companyLocation?.address ?? invoiceData.company?.address ?? "",
     },
     client: {
       identityDocNo: invoiceData.client?.identityDocumentNo ?? invoiceData.clientDocNo ?? "",
@@ -321,7 +336,8 @@ function mapInvoiceToSunatPayload(invoiceData, items, credits) {
         invoiceData.client?.identityDocumentNo ?? invoiceData.clientDocNo ?? ""
       ),
       businessName: invoiceData.client?.businessName ?? invoiceData.clientName ?? "",
-      address: invoiceData.client?.address ?? invoiceData.clientAddress ?? "",
+      // En InvoiceRecord (web) el campo se llama homeAddress.
+      address: invoiceData.client?.homeAddress ?? invoiceData.client?.address ?? invoiceData.clientAddress ?? "",
     },
     items: mappedItems,
     taxSubtotals,

@@ -65,7 +65,10 @@ async function _processSendBillJob(jobId, job) {
   // Denormalizar datos clave del documento en el job para evitar joins desde la web.
   const documentNo = String(invoiceData?.documentNo ?? "").trim();
   const docType = String(invoiceData?.type ?? "").trim();
-  const issueDate = String(invoiceData?.issueDate ?? "").trim();
+  // Solo fecha (YYYY-MM-DD) para el job (compatibilidad con `issueDate` legacy sin hora).
+  const issueDateRaw = String(invoiceData?.issueDate ?? "").trim();
+  const issueDateMatch = issueDateRaw.match(/^\d{4}-\d{2}-\d{2}/);
+  const issueDate = issueDateMatch ? issueDateMatch[0] : (issueDateRaw.includes("T") ? issueDateRaw.split("T")[0] : issueDateRaw);
   await updateJob(db, jobId, {
     ...(documentNo ? { documentNo } : {}),
     ...(docType ? { docType } : {}),
@@ -118,6 +121,25 @@ async function _processSendBillJob(jobId, job) {
 
   const invoiceStatus = success ? "accepted" : "rejected";
   const jobStatus = success ? "accepted" : "rejected";
+
+  // 7.5 Si la factura proviene de una liquidación, al aceptar SUNAT
+  // marcar la liquidación como "pagada" (liquidada) y dejar pendientes en 0.
+  // Nota: este estado se usa como "liquidación finalizada por facturación" (no pago bancario).
+  const settlementId = String(invoiceData?.settlementId ?? "").trim();
+  if (success && settlementId) {
+    try {
+      const settlementRef = db.collection("settlements").doc(settlementId);
+      const settlementSnap = await settlementRef.get();
+      if (settlementSnap.exists) {
+        await settlementRef.update({
+          paymentStatus: "invoiced",
+          updateAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+    } catch (err) {
+      console.error("Error actualizando liquidación tras aceptación SUNAT:", err);
+    }
+  }
 
   // 8. Update invoice
   await db.collection("invoices").doc(invoiceId).update({

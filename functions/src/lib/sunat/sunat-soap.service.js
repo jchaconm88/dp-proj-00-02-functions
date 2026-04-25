@@ -305,6 +305,18 @@ function _extractCdrMessages(xmlContent) {
 }
 
 /**
+ * Extrae el ResponseCode principal del CDR XML.
+ *
+ * @param {string} xmlContent
+ * @returns {string|null}
+ */
+function _extractCdrResponseCode(xmlContent) {
+  const m = /<cbc:ResponseCode[^>]*>([\s\S]*?)<\/cbc:ResponseCode>/i.exec(xmlContent);
+  const code = m?.[1] ? String(m[1]).trim() : "";
+  return code ? code : null;
+}
+
+/**
  * Descomprime el CDR ZIP y extrae los mensajes de respuesta de SUNAT.
  *
  * @param {Buffer} cdrBuffer - CDR ZIP recibido de SUNAT
@@ -324,9 +336,10 @@ async function readCdr(cdrBuffer) {
 
     const xmlContent = await zip.files[xmlFileName].async("string");
     const messages = _extractCdrMessages(xmlContent);
-    const success = messages.some((m) =>
-      m.toLowerCase().includes("ha sido aceptado")
-    );
+    const responseCode = _extractCdrResponseCode(xmlContent);
+    const successByCode = responseCode === "0";
+    const successByText = messages.some((m) => m.toLowerCase().includes("aceptad"));
+    const success = successByCode || successByText;
 
     const status = success ? "S" : messages.length > 0 ? "R" : "E";
 

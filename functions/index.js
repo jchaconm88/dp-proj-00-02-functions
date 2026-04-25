@@ -40,6 +40,8 @@ const { queryInvoicesCdr } = require('./src/features/billing/get-status-cdr.func
 const { sendInvoicesPack } = require('./src/features/billing/send-invoice-pack.function');
 const { sendDailySummary } = require('./src/features/billing/send-daily-summary.function');
 const { processSunatJob, processSunatJobRetry } = require('./src/features/billing/process-sunat-job.function');
+const { onInvoicesIssuedPrintPdf } = require("./src/features/billing/on-invoice-updated.function");
+const { changeInvoiceStatus } = require("./src/features/billing/change-invoice-status.function");
 
 exports.authFunction = authFunction;
 exports.getResourcePerTripCost = getResourcePerTripCost;
@@ -78,3 +80,5 @@ exports.sendInvoicesPack = sendInvoicesPack;
 exports.sendDailySummary = sendDailySummary;
 exports.processSunatJob = processSunatJob;
 exports.processSunatJobRetry = processSunatJobRetry;
+exports.onInvoicesIssuedPrintPdf = onInvoicesIssuedPrintPdf;
+exports.changeInvoiceStatus = changeInvoiceStatus;

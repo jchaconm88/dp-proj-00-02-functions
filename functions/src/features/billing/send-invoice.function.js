@@ -34,7 +34,9 @@ exports.sendInvoicesToSunat = onCall(async ({ data }) => {
     const companyId = invoiceData.companyId;
     const documentNo = String(invoiceData.documentNo ?? "").trim();
     const docType = String(invoiceData.type ?? "").trim(); // invoice|credit_note|debit_note
-    const issueDate = String(invoiceData.issueDate ?? "").trim();
+    // Para el job solo necesitamos la fecha (YYYY-MM-DD), no la hora.
+    const issueDateRaw = String(invoiceData.issueDate ?? "").trim();
+    const issueDate = issueDateRaw.includes("T") ? issueDateRaw.split("T")[0] : issueDateRaw;
 
     if (!companiesChecked.has(companyId)) {
       await assertActiveSunatConfigForCompany(db, companyId);

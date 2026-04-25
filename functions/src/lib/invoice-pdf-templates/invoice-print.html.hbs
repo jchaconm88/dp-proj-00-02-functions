@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>{{documentNo}}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: Arial, Helvetica, sans-serif; font-size: 11px; color: #111; margin: 0; padding: 0; }
+    .wrap { max-width: 800px; margin: 0 auto; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 12px; }
+    .issuer { flex: 1; }
+    .issuer .name { font-weight: bold; font-size: 13px; text-transform: uppercase; }
+    .issuer .line { margin-top: 2px; }
+    .docbox { border: 2px solid #000; padding: 8px 12px; min-width: 200px; text-align: center; }
+    .docbox .t { font-weight: bold; font-size: 12px; }
+    .docbox .ruc { margin-top: 4px; }
+    .docbox .num { font-weight: bold; font-size: 14px; margin-top: 6px; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; margin: 12px 0; }
+    .lbl { font-weight: bold; }
+    .right { text-align: right; }
+    table.items { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    table.items th, table.items td { border: 1px solid #333; padding: 4px 6px; }
+    table.items th { background: #f0f0f0; font-weight: bold; text-align: center; }
+    table.items td.qty, table.items td.pu, table.items td.icb { text-align: right; }
+    .totals { margin-top: 12px; display: flex; justify-content: space-between; gap: 16px; }
+    .words { border: 1px solid #333; padding: 8px; flex: 1; min-height: 48px; }
+    .sumtbl { width: 280px; border-collapse: collapse; }
+    .sumtbl td { border: 1px solid #333; padding: 4px 8px; }
+    .sumtbl td:first-child { font-weight: bold; }
+    .sumtbl td:last-child { text-align: right; white-space: nowrap; }
+    .credit { margin-top: 14px; border: 2px solid #000; padding: 10px; }
+    .credit h3 { margin: 0 0 8px 0; font-size: 12px; text-align: center; text-transform: uppercase; }
+    .creditgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+    table.cuotas { width: 100%; border-collapse: collapse; }
+    table.cuotas th, table.cuotas td { border: 1px solid #333; padding: 4px 6px; text-align: center; }
+    table.cuotas th { background: #f0f0f0; }
+    .footer { margin-top: 16px; font-size: 9px; text-align: justify; color: #333; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div class="issuer">
+      <div class="name">{{company.businessName}}</div>
+      {{#if company.ruc}}<div class="line">RUC: {{company.ruc}}</div>{{/if}}
+      <div class="line">{{company.address}}{{#if company.district}}, {{company.district}}{{/if}}{{#if company.city}} - {{company.city}}{{/if}}</div>
+    </div>
+    <div class="docbox">
+      <div class="t">{{documentTitle}}</div>
+      <div class="ruc">RUC: {{company.ruc}}</div>
+      <div class="num">{{documentNo}}</div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div><span class="lbl">Fecha de Emisión:</span> {{formatDatePe issueDate}}</div>
+    <div class="right"><span class="lbl">Forma de pago:</span> {{payTermDisplay}}</div>
+    <div class="grid2" style="grid-column: 1 / -1; display: block;">
+      <div><span class="lbl">Señor(es):</span> {{client.businessName}}</div>
+      <div><span class="lbl">RUC:</span> {{client.identityDocNo}}</div>
+      <div style="margin-top:4px;"><span class="lbl">Dirección del Receptor de la factura:</span> {{client.address}}</div>
+      <div style="margin-top:4px;"><span class="lbl">Establecimiento del Emisor:</span> {{company.address}}{{#if company.district}}, {{company.district}}{{/if}}{{#if company.city}} - {{company.city}}{{/if}}</div>
+      <div style="margin-top:4px;"><span class="lbl">Tipo de Moneda:</span> {{#if (eq currency "USD")}}DÓLARES AMERICANOS{{else}}SOLES{{/if}}</div>
+      {{#if comment}}<div style="margin-top:4px;"><span class="lbl">Observación:</span> {{comment}}</div>{{else}}<div style="margin-top:4px;"><span class="lbl">Observación:</span> </div>{{/if}}
+    </div>
+  </div>
+
+  <table class="items">
+    <thead>
+      <tr>
+        <th style="width:10%">Cantidad</th>
+        <th style="width:14%">Unidad Medida</th>
+        <th>Descripción</th>
+        <th style="width:14%">Valor Unitario</th>
+        <th style="width:10%">ICBPER</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#each printRows}}
+      <tr>
+        <td class="qty">{{formatAmount quantity}}</td>
+        <td style="text-align:center;">{{measureName}}</td>
+        <td>{{description}}</td>
+        <td class="pu">{{formatMoneyDisplay unitPrice ../currency}}</td>
+        <td class="icb">{{formatMoneyDisplay icbper ../currency}}</td>
+      </tr>
+      {{/each}}
+    </tbody>
+  </table>
+
+  <div class="totals">
+    <div>
+      <div class="words" style="margin-bottom:8px;">
+        <span class="lbl">Valor de Venta de Operaciones Gratuitas:</span> {{formatMoneyDisplay 0 currency}}
+      </div>
+      <div class="words">{{amountToWords totalAmount currency}}</div>
+    </div>
+    <table class="sumtbl">
+      <tr><td>Sub Total Ventas</td><td>{{formatMoneyDisplay totalPrice currency}}</td></tr>
+      <tr><td>Anticipos / Descuentos / ISC / ICBPER / Otros</td><td>{{formatMoneyDisplay 0 currency}}</td></tr>
+      <tr><td>Valor Venta</td><td>{{formatMoneyDisplay totalPrice currency}}</td></tr>
+      <tr><td>IGV</td><td>{{formatMoneyDisplay totalTax currency}}</td></tr>
+      <tr><td>Importe Total</td><td>{{formatMoneyDisplay totalAmount currency}}</td></tr>
+    </table>
+  </div>
+
+  {{#unless (isContado payTerm)}}
+  <div class="credit">
+    <h3>Información del crédito</h3>
+    <div class="creditgrid">
+      <div><span class="lbl">Monto neto pendiente de pago:</span> {{formatMoneyDisplay creditsTotalAmount currency}}</div>
+      <div class="right"><span class="lbl">Total de Cuotas:</span> {{creditCount}}</div>
+    </div>
+    <table class="cuotas">
+      <thead>
+        <tr><th>N° Cuota</th><th>Fec. Venc.</th><th>Monto</th></tr>
+      </thead>
+      <tbody>
+        {{#each credits}}
+        <tr>
+          <td>{{correlative}}</td>
+          <td>{{formatDatePe dueDate}}</td>
+          <td>{{formatMoneyDisplay amount ../currency}}</td>
+        </tr>
+        {{/each}}
+      </tbody>
+    </table>
+  </div>
+  {{/unless}}
+
+  <div class="footer">
+    Esta es una representación impresa de la factura electrónica, generada en el Sistema de SUNAT. Puede verificarla utilizando su clave SOL.
+  </div>
+</div>
+</body>
+</html>
