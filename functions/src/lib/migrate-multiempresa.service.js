@@ -33,8 +33,8 @@ function userIsPlatformAdmin(data) {
   return role.includes("admin") || roleIds.includes("admin");
 }
 
-/** Roles para company-users: unión de `role` y `roleIds` del perfil `users`. */
-function membershipRoleIdsFromUserDoc(data) {
+/** Roles para `company-users`: unión de `role` y `roleIds` del perfil `users`. */
+function companyUserRoleIdsFromUserProfile(data) {
   const d = data || {};
   const a = Array.isArray(d.roleIds) ? d.roleIds : [];
   const b = Array.isArray(d.role) ? d.role : [];
@@ -90,7 +90,7 @@ async function resolveAccountIdForCompany(companyId) {
   return a || cid;
 }
 
-async function upsertMembership(companyId, uid, roleIds) {
+async function upsertCompanyUserDoc(companyId, uid, roleIds) {
   const id = `${companyId}_${uid}`;
   const accountId = await resolveAccountIdForCompany(companyId);
   const userSnap = await db.collection("users").doc(uid).get();
@@ -161,7 +161,7 @@ const DEFAULT_COLLECTIONS = [
 ];
 
 /**
- * @param {Record<string, unknown>} data - companyId, companyName, seedMemberships, limitPerCollection, collections, email (opcional en cliente; el servidor resuelve lookupEmail)
+ * @param {Record<string, unknown>} data - companyId, companyName, seedCompanyUsers (alias legacy: seedMemberships), limitPerCollection, collections, email (opcional en cliente; el servidor resuelve lookupEmail)
  * @param {string} lookupEmail - Email con el que se busca en users.email (debe coincidir con el token en la capa HTTP/callable)
  * @returns {Promise<{ ok: boolean; companyId: string; results: Record<string, { scanned: number; updated: number }> }>}
  */
@@ -170,19 +170,19 @@ async function runMigrateMultiempresa(data = {}, lookupEmail) {
 
   const companyId = String(data.companyId ?? "default").trim() || "default";
   const companyName = String(data.companyName ?? "Empresa Default").trim();
-  const seedMemberships = data.seedMemberships === true;
+  const seedCompanyUsers = data.seedCompanyUsers === true || data.seedMemberships === true;
   const limitPerCollection = Math.max(1, Math.min(500, Number(data.limitPerCollection) || 200));
 
   await ensureCompany(companyId, companyName);
 
-  if (seedMemberships) {
+  if (seedCompanyUsers) {
     const usersSnap = await db.collection("users").limit(500).get();
     for (const u of usersSnap.docs) {
       const d = u.data() || {};
       const authUid = await resolveAuthUidForUserDoc(u.id, d);
       if (!authUid) continue;
 
-      const roleIds = membershipRoleIdsFromUserDoc(d);
+      const roleIds = companyUserRoleIdsFromUserProfile(d);
       const wrongId = `${companyId}_${u.id}`;
       if (u.id !== authUid) {
         try {
@@ -191,7 +191,7 @@ async function runMigrateMultiempresa(data = {}, lookupEmail) {
           /* no existía o ya borrado */
         }
       }
-      await upsertMembership(companyId, authUid, roleIds);
+      await upsertCompanyUserDoc(companyId, authUid, roleIds);
 
       if (authUid !== u.id || !d.authUid) {
         try {
@@ -275,7 +275,7 @@ async function runMergeUserRolesToCompanyUsers(companyId, limitUsers = 500) {
   let skippedNoRoles = 0;
   for (const u of usersSnap.docs) {
     const d = u.data() || {};
-    const fromUser = membershipRoleIdsFromUserDoc(d);
+    const fromUser = companyUserRoleIdsFromUserProfile(d);
     if (fromUser.length === 0) {
       skippedNoRoles++;
       continue;
@@ -293,7 +293,7 @@ async function runMergeUserRolesToCompanyUsers(companyId, limitUsers = 500) {
       mergedIds.length === existing.length && mergedIds.every((id) => existing.includes(id));
     if (same) continue;
     // eslint-disable-next-line no-await-in-loop
-    await upsertMembership(cid, authUid, mergedIds);
+    await upsertCompanyUserDoc(cid, authUid, mergedIds);
     merged++;
   }
   return {
@@ -305,7 +305,7 @@ async function runMergeUserRolesToCompanyUsers(companyId, limitUsers = 500) {
 }
 
 /**
- * Elimina `role` y `roleIds` en documentos `users` (solo tras migrar a company-users y refrescar claims).
+ * Elimina `role` y `roleIds` en documentos `users` (solo tras migrar a `company-users` y refrescar claims).
  * @param {number} limitN
  */
 async function stripLegacyUserRoleFields(limitN = 200) {
@@ -343,6 +343,6 @@ module.exports = {
   runMergeUserRolesToCompanyUsers,
   stripLegacyUserRoleFields,
   userIsPlatformAdmin,
-  membershipRoleIdsFromUserDoc,
+  companyUserRoleIdsFromUserProfile,
   DEFAULT_COLLECTIONS,
 };

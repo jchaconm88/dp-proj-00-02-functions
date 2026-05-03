@@ -1,7 +1,7 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { db } = require("../../lib/firebase");
 const { resolveDraftCodeWithGenerator } = require("../../lib/sequence-code.service");
-const { assertCompanyMember } = require("../../lib/tenant-auth");
+const { assertCompanyUser } = require("../../lib/tenant-auth");
 
 /**
  * Resuelve el código a persistir (misma regla que DpCodeInput + guardado en la web).
@@ -19,7 +19,7 @@ const generateSequenceCode = onCall(
     }
 
     const companyId = String(request.data?.companyId ?? "").trim();
-    await assertCompanyMember(db, companyId, request.auth.uid);
+    await assertCompanyUser(db, companyId, request.auth.uid);
 
     const entity = String(request.data?.entity ?? "").trim();
     if (!entity) {

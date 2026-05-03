@@ -1,7 +1,7 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { db } = require("../../lib/firebase");
 const { computeTripCostFromAssignment } = require("../../lib/trip-cost.service");
-const { assertCompanyMember } = require("../../lib/tenant-auth");
+const { assertCompanyUser } = require("../../lib/tenant-auth");
 
 function mapComputeError(e) {
   switch (e.code) {
@@ -32,7 +32,7 @@ const getResourcePerTripCost = onCall(
     }
 
     const companyId = String(request.data?.companyId ?? "").trim();
-    await assertCompanyMember(db, companyId, request.auth.uid);
+    await assertCompanyUser(db, companyId, request.auth.uid);
 
     const tripAssignmentId = String(request.data?.tripAssignmentId ?? "").trim();
     if (!tripAssignmentId) {
@@ -86,7 +86,7 @@ module.exports = {
       }
 
       const companyId = String(request.data?.companyId ?? "").trim();
-      await assertCompanyMember(db, companyId, request.auth.uid);
+      await assertCompanyUser(db, companyId, request.auth.uid);
 
       const entityType = String(request.data?.entityType ?? "").trim();
       const entityId = String(request.data?.entityId ?? "").trim();

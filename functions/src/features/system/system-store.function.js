@@ -1,7 +1,8 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { db, admin } = require("../../lib/firebase");
-const { assertCompanyMember } = require("../../lib/tenant-auth");
+const { assertCompanyUser } = require("../../lib/tenant-auth");
 const { isGrantedFromAuthToken } = require("../../lib/permissions");
+const { listMergedWebRolesForCompany } = require("../../lib/web-roles-merge");
 
 function assertAuthenticated(request) {
   if (!request.auth?.uid) {
@@ -27,22 +28,6 @@ function normalizeText(value) {
 async function accountIdForCompany(companyId) {
   const snap = await db.collection("companies").doc(companyId).get();
   return String(snap.data()?.accountId ?? companyId).trim() || companyId;
-}
-
-function toRoleRecord(doc) {
-  const data = doc.data() || {};
-  return {
-    id: doc.id,
-    companyId: normalizeText(data.companyId),
-    name: String(data.name ?? ""),
-    description: String(data.description ?? ""),
-    permissions: data.permissions && typeof data.permissions === "object" ? data.permissions : {},
-    permission: Array.isArray(data.permission) ? data.permission : [],
-    createBy: data.createBy,
-    createAt: data.createAt,
-    updateBy: data.updateBy,
-    updateAt: data.updateAt,
-  };
 }
 
 function toCompanyUserRecord(doc) {
@@ -93,18 +78,13 @@ const systemListRolesByCompany = onCall({ cors: true }, async (request) => {
   const companyId = String(request.data?.companyId ?? "").trim();
   if (!companyId) throw new HttpsError("invalid-argument", "companyId es obligatorio.");
 
-  await assertCompanyMember(db, companyId, uid);
+  await assertCompanyUser(db, companyId, uid);
   if (!isGrantedFromAuthToken(request.auth, "role", "view")) {
     assertGranted(request, "user", "edit", "No tienes permisos para consultar roles de la empresa.");
   }
 
   const accountId = await accountIdForCompany(companyId);
-  const snap = await db
-    .collection("roles")
-    .where("companyId", "==", companyId)
-    .where("accountId", "==", accountId)
-    .get();
-  const items = snap.docs.map((doc) => toRoleRecord(doc)).sort((a, b) => a.name.localeCompare(b.name));
+  const items = await listMergedWebRolesForCompany(db, accountId, companyId);
   return { items };
 });
 
@@ -113,9 +93,9 @@ const systemListCompanyUsers = onCall({ cors: true }, async (request) => {
   const companyId = String(request.data?.companyId ?? "").trim();
   if (!companyId) throw new HttpsError("invalid-argument", "companyId es obligatorio.");
 
-  await assertCompanyMember(db, companyId, uid);
+  await assertCompanyUser(db, companyId, uid);
   if (!isGrantedFromAuthToken(request.auth, "user", "view")) {
-    assertGranted(request, "user", "edit", "No tienes permisos para consultar miembros de empresa.");
+    assertGranted(request, "user", "edit", "No tienes permisos para consultar usuarios de empresa.");
   }
 
   const snap = await db.collection("company-users").where("companyId", "==", companyId).get();
@@ -127,23 +107,18 @@ const systemListCompanyUsers = onCall({ cors: true }, async (request) => {
   return { items };
 });
 
-const systemListMyMemberships = onCall({ cors: true }, async (request) => {
+const systemListMyCompanyUsers = onCall({ cors: true }, async (request) => {
   const uid = assertAuthenticated(request);
-  const legacyUsersDocId = normalizeText(request.data?.legacyUsersDocId);
 
-  const byUserIdSnap = await db.collection("company-users").where("userId", "==", uid).get();
-  let docs = byUserIdSnap.docs;
-  if (docs.length === 0 && legacyUsersDocId && legacyUsersDocId !== uid) {
-    docs = (await db.collection("company-users").where("userId", "==", legacyUsersDocId).get()).docs;
-  }
+  const snap = await db.collection("company-users").where("userId", "==", uid).get();
 
-  const items = docs
+  const items = snap.docs
     .map((doc) => toCompanyUserRecord(doc))
     .sort((a, b) => a.companyId.localeCompare(b.companyId));
   return { items };
 });
 
-const systemSaveCompanyMembership = onCall({ cors: true }, async (request) => {
+const systemUpsertCompanyUser = onCall({ cors: true }, async (request) => {
   const uid = assertAuthenticated(request);
   const companyId = String(request.data?.companyId ?? "").trim();
   const userId = String(request.data?.userId ?? "").trim();
@@ -158,15 +133,15 @@ const systemSaveCompanyMembership = onCall({ cors: true }, async (request) => {
   if (!companyId || !userId) {
     throw new HttpsError("invalid-argument", "companyId y userId son obligatorios.");
   }
-  await assertCompanyMember(db, companyId, uid);
-  assertGranted(request, "user", "edit", "No tienes permisos para editar miembros de empresa.");
+  await assertCompanyUser(db, companyId, uid);
+  assertGranted(request, "user", "edit", "No tienes permisos para editar usuarios de empresa.");
 
-  const membershipId = `${companyId}_${userId}`;
+  const companyUserDocId = `${companyId}_${userId}`;
   const accountId = await accountIdForCompany(companyId);
   const now = admin.firestore.FieldValue.serverTimestamp();
   const updateBy = normalizeText(request.auth?.token?.email) || uid;
 
-  await db.collection("company-users").doc(membershipId).set({
+  await db.collection("company-users").doc(companyUserDocId).set({
     companyId,
     accountId,
     userId,
@@ -182,7 +157,7 @@ const systemSaveCompanyMembership = onCall({ cors: true }, async (request) => {
     uid: admin.firestore.FieldValue.delete(),
   }, { merge: true });
 
-  return { id: membershipId };
+  return { id: companyUserDocId };
 });
 
 const systemUpdateCompanyUser = onCall({ cors: true }, async (request) => {
@@ -195,13 +170,13 @@ const systemUpdateCompanyUser = onCall({ cors: true }, async (request) => {
 
   const current = await db.collection("company-users").doc(id).get();
   if (!current.exists) {
-    throw new HttpsError("not-found", "No existe la membresía a actualizar.");
+    throw new HttpsError("not-found", "No existe el documento de usuario de empresa a actualizar.");
   }
   const companyId = String(current.data()?.companyId ?? "").trim();
-  if (!companyId) throw new HttpsError("failed-precondition", "Membresía sin companyId.");
+  if (!companyId) throw new HttpsError("failed-precondition", "Documento sin companyId.");
 
-  await assertCompanyMember(db, companyId, uid);
-  assertGranted(request, "user", "edit", "No tienes permisos para editar miembros de empresa.");
+  await assertCompanyUser(db, companyId, uid);
+  assertGranted(request, "user", "edit", "No tienes permisos para editar usuarios de empresa.");
 
   const safePatch = { ...patch };
   if ("uid" in safePatch) delete safePatch.uid;
@@ -227,10 +202,10 @@ const systemDeleteCompanyUser = onCall({ cors: true }, async (request) => {
   const current = await db.collection("company-users").doc(id).get();
   if (!current.exists) return { ok: true };
   const companyId = String(current.data()?.companyId ?? "").trim();
-  if (!companyId) throw new HttpsError("failed-precondition", "Membresía sin companyId.");
+  if (!companyId) throw new HttpsError("failed-precondition", "Documento sin companyId.");
 
-  await assertCompanyMember(db, companyId, uid);
-  assertGranted(request, "user", "edit", "No tienes permisos para eliminar miembros de empresa.");
+  await assertCompanyUser(db, companyId, uid);
+  assertGranted(request, "user", "edit", "No tienes permisos para eliminar usuarios de empresa.");
   await db.collection("company-users").doc(id).delete();
   return { ok: true };
 });
@@ -239,8 +214,8 @@ module.exports = {
   systemListUsers,
   systemListRolesByCompany,
   systemListCompanyUsers,
-  systemListMyMemberships,
-  systemSaveCompanyMembership,
+  systemListMyCompanyUsers,
+  systemUpsertCompanyUser,
   systemUpdateCompanyUser,
   systemDeleteCompanyUser,
 };

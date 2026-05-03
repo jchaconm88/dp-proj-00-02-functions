@@ -80,7 +80,7 @@ app.get("/", (req, res) => {
 /**
  * Migración multiempresa (HTTP). Requiere Authorization: Bearer <idToken>
  * y un perfil admin en Firestore con users.email igual al email enviado (body.email o email del token).
- * Body: { email?, companyId, companyName, seedMemberships, limitPerCollection, collections }
+ * Body: { email?, companyId, companyName, seedCompanyUsers (alias: seedMemberships), limitPerCollection, collections }
  * Si envías body.email debe coincidir con el email del token (misma cuenta).
  */
 app.post("/migrate-multiempresa", async (req, res) => {

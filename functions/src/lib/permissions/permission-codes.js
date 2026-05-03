@@ -38,8 +38,8 @@ function collectRolePermissionCodes(roleData) {
   return Array.from(out);
 }
 
-function collectMembershipPermissionCodes(membershipData, rolesById, rolesByName) {
-  const d = membershipData && typeof membershipData === "object" ? membershipData : {};
+function collectCompanyUserPermissionCodes(companyUserData, rolesById, rolesByName) {
+  const d = companyUserData && typeof companyUserData === "object" ? companyUserData : {};
   const roleIds = Array.isArray(d.roleIds) ? d.roleIds : [];
   const roleNames = Array.isArray(d.roleNames) ? d.roleNames : [];
   const out = new Set();
@@ -65,5 +65,5 @@ function collectMembershipPermissionCodes(membershipData, rolesById, rolesByName
 
 module.exports = {
   collectRolePermissionCodes,
-  collectMembershipPermissionCodes,
+  collectCompanyUserPermissionCodes,
 };

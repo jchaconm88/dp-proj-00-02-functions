@@ -1,7 +1,7 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { FieldValue } = require("firebase-admin/firestore");
 const { db } = require("../../lib/firebase");
-const { assertCompanyMember } = require("../../lib/tenant-auth");
+const { assertCompanyUser } = require("../../lib/tenant-auth");
 const { periodFromDate, usageDocId } = require("../../lib/usage-months.service");
 const {
   composeDashboardSnapshot,
@@ -129,7 +129,7 @@ const prepareDashboardSnapshot = onCall(
       throw new HttpsError("unauthenticated", "Debes iniciar sesión para preparar el dashboard.");
     }
     const companyId = String(request.data?.companyId ?? "").trim();
-    await assertCompanyMember(db, companyId, request.auth.uid);
+    await assertCompanyUser(db, companyId, request.auth.uid);
     const companySnap = await db.collection("companies").doc(companyId).get();
     const accountId = String(companySnap.data()?.accountId ?? companyId).trim() || companyId;
     const periodRaw = String(request.data?.period ?? "").trim();

@@ -5,7 +5,7 @@ const { FieldValue } = require("firebase-admin/firestore");
 const { db } = require("../../lib/firebase");
 const { isGrantedFromAuthToken } = require("../../lib/permissions/grants");
 const { validateInvoiceCanBeIssued } = require("../../lib/invoice/invoice-issue-validate");
-const { assertCompanyMember } = require("../../lib/tenant-auth");
+const { assertCompanyUser } = require("../../lib/tenant-auth");
 
 /**
  * Cambia el estado de una factura con permiso granular `invoice:change_status_<nextStatus>`.
@@ -28,7 +28,7 @@ exports.changeInvoiceStatus = onCall(async ({ data, auth }) => {
     throw new HttpsError("invalid-argument", "Estado invalido.");
   }
 
-  await assertCompanyMember(db, companyId, auth.uid);
+  await assertCompanyUser(db, companyId, auth.uid);
 
   const action = `change_status_${nextStatus}`;
   if (!isGrantedFromAuthToken(auth, "invoice", action)) {

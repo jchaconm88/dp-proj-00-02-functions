@@ -21,8 +21,8 @@ const {
   systemListUsers,
   systemListRolesByCompany,
   systemListCompanyUsers,
-  systemListMyMemberships,
-  systemSaveCompanyMembership,
+  systemListMyCompanyUsers,
+  systemUpsertCompanyUser,
   systemUpdateCompanyUser,
   systemDeleteCompanyUser,
 } = require("./src/features/system/system-store.function");
@@ -63,8 +63,8 @@ exports.refreshTenantClaims = refreshTenantClaims;
 exports.systemListUsers = systemListUsers;
 exports.systemListRolesByCompany = systemListRolesByCompany;
 exports.systemListCompanyUsers = systemListCompanyUsers;
-exports.systemListMyMemberships = systemListMyMemberships;
-exports.systemSaveCompanyMembership = systemSaveCompanyMembership;
+exports.systemListMyCompanyUsers = systemListMyCompanyUsers;
+exports.systemUpsertCompanyUser = systemUpsertCompanyUser;
 exports.systemUpdateCompanyUser = systemUpdateCompanyUser;
 exports.systemDeleteCompanyUser = systemDeleteCompanyUser;
 exports.reconcileUsageMetrics = reconcileUsageMetrics;

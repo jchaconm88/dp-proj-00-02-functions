@@ -3,7 +3,7 @@ const { logger } = require("firebase-functions");
 const { FieldValue } = require("firebase-admin/firestore");
 const { db } = require("../../lib/firebase");
 const { NOTIFY_TEMPLATE_MAX_LEN } = require("../../lib/report-run-email.service");
-const { assertCompanyMember } = require("../../lib/tenant-auth");
+const { assertCompanyUser } = require("../../lib/tenant-auth");
 const { enforceIfSubscriptionExists, checkPlanLimit } = require("../../lib/tenant-account.service");
 const { recordMetric } = require("../../lib/usage-months.service");
 
@@ -28,7 +28,7 @@ const createReportRun = onCall(
     }
 
     const companyId = String(request.data?.companyId ?? "").trim();
-    await assertCompanyMember(db, companyId, request.auth.uid);
+    await assertCompanyUser(db, companyId, request.auth.uid);
 
     const reportDefinitionId = String(request.data?.reportDefinitionId ?? "").trim();
     if (!reportDefinitionId) {
