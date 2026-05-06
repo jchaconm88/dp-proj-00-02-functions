@@ -1,41 +1,17 @@
-# Despliega Cloud Functions en Firebase al hacer push a main
-# Requiere: secret FIREBASE_SERVICE_ACCOUNT con el JSON de la cuenta de servicio (ver README)
-
-name: Deploy Firebase Functions
+# Despliegue automático desactivado: la lógica migra a dp-proj-00-02-backend (Cloud Run).
+# Ver FUNCTIONS_RETIRED.md en la raíz de este repo.
+name: Deploy Firebase Functions (retirado)
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 jobs:
-  deploy:
-    name: Deploy to Firebase
+  notice:
+    name: Sin despliegue automático
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: "22"
-          cache: "npm"
-          cache-dependency-path: functions/package-lock.json
-
-      - name: Install dependencies
-        working-directory: functions
-        run: npm ci
-
-      - name: Install Firebase CLI
-        run: npm install -g firebase-tools
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v3
-        with:
-          credentials_json: "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}"
-
-      - name: Deploy to Firebase (functions)
-        run: firebase deploy --only functions --non-interactive --force
+      - uses: actions/checkout@v5
+      - name: Documentación
+        run: |
+          cat FUNCTIONS_RETIRED.md
+          echo "::notice::No hay deploy en push. Usar backend + infra (dp-proj-00-02-infra) según el plan del monorepo."

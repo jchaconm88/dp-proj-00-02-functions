@@ -1,5 +1,5 @@
 {
   "projects": {
-    "default": "layout-admin"
+    "default": "your-gcp-project-id-if-using-functions-locally"
   }
 }
