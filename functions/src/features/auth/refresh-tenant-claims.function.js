@@ -26,9 +26,7 @@ const refreshTenantClaims = onCall({ cors: true }, async (request) => {
   const compSnap = await db.collection("companies").doc(companyId).get();
   const accountId = String(compSnap.data()?.accountId ?? companyId).trim() || companyId;
 
-  // Bootstrap/compatibilidad: permitir "admin" legacy como superusuario.
-  // - users/{uid}.roleIds: ["admin"] o users/{uid}.role: ["admin"]
-  // - company-users.roleIds contiene "admin" (slug, no docId de roles)
+  // Superusuario: role slug "admin" otorga todos los permisos.
   const companyUser = mSnap.data() || {};
   const companyUserRoleIds = Array.isArray(companyUser.roleIds) ? companyUser.roleIds : [];
   const hasAdminSlugInCompanyUser = companyUserRoleIds.map(normalizeCode).includes("admin");

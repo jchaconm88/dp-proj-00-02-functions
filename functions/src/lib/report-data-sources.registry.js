@@ -68,7 +68,14 @@ const TRIPS_PER_ASSIGNMENT_META = {
 };
 
 /** Orígenes soportados por el ejecutor (F1). */
-const SUPPORTED_SOURCE_IDS = new Set(["trips"]);
+const SUPPORTED_SOURCE_IDS = new Set([
+  "trips",
+  "purchase-orders",
+  "sale-orders",
+  "quotations",
+  "inventory-movements",
+  "stock-valuation",
+]);
 
 /**
  * @param {string} sourceId
